@@ -1,0 +1,101 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+@import 'tailwindcss';
+
+/* ── Theme tokens ─────────────────────────────────────────────────────────── */
+:root {
+  --bg:           #F0F2F6;
+  --card:         #FFFFFF;
+  --nav:          #1F3864;
+  --sidebar:      #172d53;
+  --sidebar-item: rgba(197,150,26,0.18);
+  --sidebar-text: #C5961A;
+  --border:       #E2E6EF;
+  --border-sub:   #F0F2F6;
+  --text1:        #1a1d23;
+  --text2:        #6B7280;
+  --text3:        #9CA3AF;
+  --text-nav:     #8DA0C0;
+  --input-bg:     #2a4a85;
+  --input-border: #3a5a95;
+  --hover-row:    #F8F9FB;
+  --hover-deep:   #F0F4FF;
+  --thead-bg:     #F8F9FB;
+  --tab-bg:       #F0F2F6;
+  --tab-active:   #FFFFFF;
+  --accent:       #1F3864;
+  --gain:         #1B7E34;
+  --loss:         #C62828;
+  --gold:         #C5961A;
+  --shadow:       0 2px 10px rgba(0,0,0,0.08);
+  --shadow-lg:    0 8px 24px rgba(0,0,0,0.14);
+}
+
+[data-theme="dark"] {
+  --bg:           #0D1117;
+  --card:         #161B22;
+  --nav:          #0D1117;
+  --sidebar:      #0D1117;
+  --sidebar-item: rgba(31,111,235,0.15);
+  --sidebar-text: #58A6FF;
+  --border:       #30363D;
+  --border-sub:   #21262D;
+  --text1:        #E6EDF3;
+  --text2:        #8B949E;
+  --text3:        #484F58;
+  --text-nav:     #8B949E;
+  --input-bg:     #21262D;
+  --input-border: #30363D;
+  --hover-row:    #1C2128;
+  --hover-deep:   #1F2937;
+  --thead-bg:     #161B22;
+  --tab-bg:       #21262D;
+  --tab-active:   #30363D;
+  --accent:       #58A6FF;
+  --gain:         #238636;
+  --loss:         #DA3633;
+  --gold:         #C5961A;
+  --shadow:       0 4px 12px rgba(0,0,0,0.45);
+  --shadow-lg:    0 8px 32px rgba(0,0,0,0.6);
+}
+
+/* ── Utility classes ────────────────────────────────────────────────────────── */
+.t-bg       { background-color: var(--bg); }
+.t-card     { background-color: var(--card); }
+.t-nav      { background-color: var(--nav); }
+.t-sidebar  { background-color: var(--sidebar); }
+.t-border   { border-color: var(--border); }
+.t-bsub     { border-color: var(--border-sub); }
+.t-text1    { color: var(--text1); }
+.t-text2    { color: var(--text2); }
+.t-text3    { color: var(--text3); }
+.t-shadow   { box-shadow: var(--shadow); }
+.t-shadow-lg{ box-shadow: var(--shadow-lg); }
+.t-thead    { background-color: var(--thead-bg); }
+.t-hover:hover { background-color: var(--hover-row); }
+.t-hover-deep:hover { background-color: var(--hover-deep); }
+.t-tab      { background-color: var(--tab-bg); }
+.t-tab-act  { background-color: var(--tab-active); }
+
+/* ── Base ───────────────────────────────────────────────────────────────────── */
+body {
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background-color: var(--bg);
+  color: var(--text1);
+  transition: background-color 0.25s, color 0.25s;
+  margin: 0;
+  padding: 0;
+}
+
+.font-mono-data {
+  font-family: 'Consolas', 'JetBrains Mono', monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text3); }
+
+.t-card, .t-nav, .t-sidebar, nav, aside {
+  transition: background-color 0.25s, border-color 0.25s;
+}
