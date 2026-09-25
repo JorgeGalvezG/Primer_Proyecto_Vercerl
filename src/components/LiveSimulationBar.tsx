@@ -1,7 +1,8 @@
 import React, { useState } from 'react'
 import {
   Play, Pause, FastForward, Zap, RotateCcw, AlertTriangle,
-  Flame, TrendingUp, TrendingDown, Radio, ChevronDown, Check, X
+  Flame, TrendingUp, TrendingDown, Radio, ChevronDown, Check, X,
+  Globe, RefreshCw, Activity, Cpu
 } from 'lucide-react'
 import { useMarket } from '../context/MarketContext'
 
@@ -15,11 +16,22 @@ export default function LiveSimulationBar({ dark }: { dark?: boolean }) {
     resetToDefaults,
     assetList,
     currentNewsEvent,
-    dismissNewsEvent
+    dismissNewsEvent,
+    dataSource,
+    setDataSource,
+    isRealFeedActive,
+    syncRealData
   } = useMarket()
 
   const [showEventMenu, setShowEventMenu] = useState(false)
   const [showResetConfirm, setShowResetConfirm] = useState(false)
+  const [isSyncing, setIsSyncing] = useState(false)
+
+  const handleSync = async () => {
+    setIsSyncing(true)
+    await syncRealData()
+    setTimeout(() => setIsSyncing(false), 800)
+  }
 
   const events = [
     {
@@ -80,12 +92,63 @@ export default function LiveSimulationBar({ dark }: { dark?: boolean }) {
           background: dark ? '#131922' : '#F8FAFC'
         }}
       >
-        {/* Left: Simulation Live Status & Speed */}
-        <div className="flex items-center gap-3">
+        {/* Left: Mode Toggle (Datos Reales vs Simulador) + Status Indicator */}
+        <div className="flex items-center flex-wrap gap-2.5">
+          {/* Data Source Selector Pill */}
+          <div className="flex items-center bg-black/5 dark:bg-white/5 p-1 rounded-xl border t-border">
+            <button
+              onClick={() => setDataSource('real')}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${
+                dataSource === 'real'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 't-text2 hover:t-text1'
+              }`}
+              title="Obtener cotizaciones reales gratuitas en vivo de Yahoo Finance (Acciones) y Binance WebSocket (Cripto)"
+            >
+              <Globe size={13} />
+              <span>Datos Reales (APIs)</span>
+              {isRealFeedActive && dataSource === 'real' && (
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+              )}
+            </button>
+            <button
+              onClick={() => setDataSource('simulated')}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${
+                dataSource === 'simulated'
+                  ? 'bg-[#1F3864] text-white dark:bg-[#58A6FF]/25 dark:text-[#58A6FF] shadow-sm'
+                  : 't-text2 hover:t-text1'
+              }`}
+              title="Usar valores base del Laboratorio IHC ($125,430.50 y $68,420.00)"
+            >
+              <Cpu size={13} />
+              <span>Simulador IHC</span>
+            </button>
+          </div>
+
+          {/* Status Badge */}
           <div className="flex items-center gap-2 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 font-bold text-[11px]">
             <span className={`w-2 h-2 rounded-full bg-emerald-500 ${isLive ? 'animate-ping' : 'opacity-40'}`} />
-            <span>{isLive ? 'MERCADO EN VIVO (EMULADO)' : 'SIMULACIÓN EN PAUSA'}</span>
+            <span>
+              {dataSource === 'real'
+                ? 'EN VIVO: YAHOO FINANCE & BINANCE'
+                : isLive
+                ? 'SIMULACIÓN IHC EN VIVO'
+                : 'SIMULACIÓN EN PAUSA'}
+            </span>
           </div>
+
+          {/* Sync Button for Real Data */}
+          {dataSource === 'real' && (
+            <button
+              onClick={handleSync}
+              disabled={isSyncing}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold t-card border t-border t-text2 hover:t-text1 hover:bg-black/5 dark:hover:bg-white/5 transition-all"
+              title="Sincronizar cotizaciones reales de Yahoo Finance ahora mismo"
+            >
+              <RefreshCw size={11} className={isSyncing ? 'animate-spin text-blue-500' : ''} />
+              <span>{isSyncing ? 'Sincronizando...' : 'Actualizar APIs'}</span>
+            </button>
+          )}
 
           {/* Speed Buttons */}
           <div className="flex items-center gap-1 bg-black/5 dark:bg-white/5 p-0.5 rounded-lg border t-border">
@@ -224,6 +287,11 @@ export default function LiveSimulationBar({ dark }: { dark?: boolean }) {
                 <span className={`flex items-center text-[10px] font-semibold ${isUp ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
                   {isUp ? '+' : ''}{fmt(a.changePct)}%
                 </span>
+                {a.type === 'Cripto' && (
+                  <span className="text-[9px] px-1 py-0.2 rounded bg-amber-500/10 text-amber-500 font-sans font-bold">
+                    Binance Live
+                  </span>
+                )}
               </div>
             )
           })}

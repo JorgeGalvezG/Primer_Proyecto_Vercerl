@@ -139,6 +139,12 @@ export interface MarketContextType {
   // Active Flash Event
   currentNewsEvent: { title: string; impact: string; time: string } | null
   dismissNewsEvent: () => void
+
+  // Data Source Controls (Free Real APIs vs Simulated)
+  dataSource: 'real' | 'simulated'
+  setDataSource: (mode: 'real' | 'simulated') => void
+  isRealFeedActive: boolean
+  syncRealData: () => Promise<void>
 }
 
 // ── Initial Baseline Data (Exact numbers from IHC Lab 04 Guide) ───────────────
@@ -506,6 +512,10 @@ export function MarketProvider({ children }: { children: React.ReactNode }) {
   const [isLive, setIsLive] = useState<boolean>(true)
   const [simSpeed, setSimSpeed] = useState<1 | 2 | 0>(1) // 1=normal, 2=rápido, 0=pausado
   const [currentNewsEvent, setCurrentNewsEvent] = useState<{ title: string; impact: string; time: string } | null>(null)
+  const [dataSource, setDataSourceState] = useState<'real' | 'simulated'>(() => {
+    return (localStorage.getItem('ernesto_datasource') as 'real' | 'simulated') || 'real'
+  })
+  const [isRealFeedActive, setIsRealFeedActive] = useState<boolean>(false)
 
   // Local storage auto-sync
   useEffect(() => {
@@ -527,6 +537,126 @@ export function MarketProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     localStorage.setItem('ernesto_alerts', JSON.stringify(alerts))
   }, [alerts])
+
+  // ── Sync Real Stock Data from Yahoo Finance ────────────────────────────────
+  const syncRealData = async () => {
+    try {
+      const resp = await fetch('/api/market')
+      if (!resp.ok) return
+      const json = await resp.json()
+      if (json.success && json.data) {
+        setIsRealFeedActive(true)
+        setAssets(prev => {
+          const next = { ...prev }
+          Object.keys(json.data).forEach(sym => {
+            const r = json.data[sym]
+            if (next[sym] && r.price > 0) {
+              const tickDir = r.price >= next[sym].price ? 'up' : 'down'
+              next[sym] = {
+                ...next[sym],
+                prevPrice: next[sym].price,
+                price: r.price,
+                changePct: r.changePct,
+                change: Number(((r.price * r.changePct) / 100).toFixed(2)),
+                high: r.high || next[sym].high,
+                low: r.low || next[sym].low,
+                volume: r.volume || next[sym].volume,
+                week52High: r.week52High || next[sym].week52High,
+                week52Low: r.week52Low || next[sym].week52Low,
+                spark: [...next[sym].spark.slice(-8), r.price],
+                tickDirection: tickDir
+              }
+            }
+          })
+          return next
+        })
+      }
+    } catch {}
+  }
+
+  const setDataSource = (mode: 'real' | 'simulated') => {
+    setDataSourceState(mode)
+    localStorage.setItem('ernesto_datasource', mode)
+    if (mode === 'simulated') {
+      resetToDefaults()
+    } else {
+      syncRealData()
+    }
+  }
+
+  // ── Real-Time Live WebSocket from Binance (BTC, ETH) 100% Free ──────────────
+  useEffect(() => {
+    if (dataSource !== 'real') return
+
+    let ws: WebSocket | null = null
+    let reconnectTimer: any = null
+
+    const connectWs = () => {
+      try {
+        ws = new WebSocket('wss://stream.binance.com:9443/ws/btcusdt@ticker/ethusdt@ticker')
+
+        ws.onopen = () => {
+          setIsRealFeedActive(true)
+        }
+
+        ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data)
+            const sym = data.s === 'BTCUSDT' ? 'BTC' : data.s === 'ETHUSDT' ? 'ETH' : null
+            if (sym) {
+              const newPrice = Number(parseFloat(data.c).toFixed(2))
+              const chgPct = Number(parseFloat(data.P).toFixed(2))
+              const chg = Number(parseFloat(data.p).toFixed(2))
+              const high = Number(parseFloat(data.h).toFixed(2))
+              const low = Number(parseFloat(data.l).toFixed(2))
+              const vol = Math.floor(parseFloat(data.v))
+
+              setAssets(prev => {
+                const item = prev[sym]
+                if (!item) return prev
+                const tickDir = newPrice >= item.price ? 'up' : 'down'
+                return {
+                  ...prev,
+                  [sym]: {
+                    ...item,
+                    prevPrice: item.price,
+                    price: newPrice,
+                    change: chg,
+                    changePct: chgPct,
+                    high,
+                    low,
+                    volume: vol,
+                    spark: [...item.spark.slice(-8), newPrice],
+                    tickDirection: tickDir
+                  }
+                }
+              })
+            }
+          } catch {}
+        }
+
+        ws.onclose = () => {
+          reconnectTimer = setTimeout(connectWs, 5000)
+        }
+      } catch {}
+    }
+
+    connectWs()
+
+    return () => {
+      if (ws) ws.close()
+      if (reconnectTimer) clearTimeout(reconnectTimer)
+    }
+  }, [dataSource])
+
+  // ── Stock Market Data Polling (Yahoo Finance via /api/market) ───────────────
+  useEffect(() => {
+    if (dataSource !== 'real') return
+
+    syncRealData()
+    const timer = setInterval(syncRealData, 20000)
+    return () => clearInterval(timer)
+  }, [dataSource])
 
   // Derive Positions with live prices and calculations
   const positions: Position[] = holdings.map(h => {
@@ -971,7 +1101,11 @@ export function MarketProvider({ children }: { children: React.ReactNode }) {
         getCandlesForTicker,
         getOrderBookForTicker,
         currentNewsEvent,
-        dismissNewsEvent
+        dismissNewsEvent,
+        dataSource,
+        setDataSource,
+        isRealFeedActive,
+        syncRealData
       }}
     >
       {children}
