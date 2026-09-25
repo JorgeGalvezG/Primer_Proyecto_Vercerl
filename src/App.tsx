@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useMemo } from 'react'
 import {
   Sun, Moon, Bell, Search, ChevronDown, TrendingUp, TrendingDown,
   User, Settings, LogOut, BarChart2, LayoutDashboard, Globe, Star,
@@ -14,57 +14,13 @@ import Watchlist from './Watchlist'
 import Trade from './Trade'
 import Leaderboard from './Leaderboard'
 import MobileView from './MobileView'
+import { MarketProvider, useMarket } from './context/MarketContext'
+import LiveSimulationBar from './components/LiveSimulationBar'
+import NotificationsDropdown from './components/NotificationsModal'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type View = 'dashboard' | 'watchlist' | 'trade' | 'leaderboard' | 'mobile'
-
-interface Position {
-  ticker: string
-  name: string
-  qty: number
-  avgPrice: number
-  curPrice: number
-  changePct: number
-}
-
-// ── Data ──────────────────────────────────────────────────────────────────────
-
-const CANDLE_DATA = (() => {
-  const dates = [
-    '02 Sep', '03 Sep', '04 Sep', '05 Sep', '08 Sep', '09 Sep', '10 Sep',
-    '11 Sep', '12 Sep', '15 Sep', '16 Sep', '17 Sep', '18 Sep', '19 Sep'
-  ]
-  const seed = [
-    175.2, 177.8, 174.1, 179.5, 182.3, 180.6, 183.1,
-    181.4, 185.2, 187.9, 184.3, 188.7, 191.2, 190.12
-  ]
-  return dates.map((date, i) => {
-    const close = seed[i]
-    const open  = i === 0 ? 173.5 : seed[i - 1]
-    const high  = Math.max(open, close) + (Math.sin(i) * 0.5 + 1) * 1.5
-    const low   = Math.min(open, close) - (Math.cos(i) * 0.5 + 1) * 1.5
-    return { date, open, close, high, low, volume: Math.floor(8e6 + (Math.sin(i * 1.3) + 1) * 6e6) }
-  })
-})()
-
-const TOP_MOVERS = [
-  { ticker: 'NVDA', name: 'NVIDIA Corp.',   price: 875.32, change: +4.87, spark: [820, 835, 848, 861, 850, 863, 875] },
-  { ticker: 'TSLA', name: 'Tesla Inc.',     price: 243.18, change: +3.21, spark: [228, 232, 235, 238, 233, 240, 243] },
-  { ticker: 'AMZN', name: 'Amazon.com',     price: 192.74, change: +2.56, spark: [182, 185, 188, 190, 186, 190, 193] },
-  { ticker: 'BVN',  name: 'Buenaventura',   price: 16.85,  change: +4.01, spark: [15.8, 16.1, 16.3, 16.2, 16.5, 16.85] },
-  { ticker: 'AAPL', name: 'Apple Inc.',     price: 190.12, change: -0.70, spark: [196, 194, 193, 191, 195, 192, 190] },
-  { ticker: 'META', name: 'Meta Platforms', price: 512.45, change: -0.87, spark: [520, 518, 515, 514, 516, 513, 512] },
-]
-
-// Exact 5 positions required by prompt: BVN, FSM, ABX.TO, AAPL, TSLA
-const POSITIONS: Position[] = [
-  { ticker: 'BVN',    name: 'Cía. de Minas Buenaventura', qty: 300, avgPrice: 14.20, curPrice: 16.85, changePct: 18.66 },
-  { ticker: 'FSM',    name: 'Fortuna Mining Corp.',       qty: 450, avgPrice: 4.10,  curPrice: 4.92,  changePct: 20.00 },
-  { ticker: 'ABX.TO', name: 'Barrick Gold Corporation',   qty: 200, avgPrice: 22.50, curPrice: 24.80, changePct: 10.22 },
-  { ticker: 'AAPL',   name: 'Apple Inc.',                 qty: 150, avgPrice: 167.45,curPrice: 190.12,changePct: 13.54 },
-  { ticker: 'TSLA',   name: 'Tesla Inc.',                 qty: 60,  avgPrice: 215.80,curPrice: 243.18,changePct: 12.69 },
-]
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -75,8 +31,24 @@ const fmtSign = (n: number) => (n >= 0 ? '+' : '') + fmt(n)
 
 // ── Candlestick SVG Chart for Dashboard ───────────────────────────────────────
 
-function SvgCandlestick({ dark, chartType }: { dark: boolean; chartType: 'velas' | 'líneas' }) {
-  const data = CANDLE_DATA
+function SvgCandlestick({ dark, chartType, livePrice }: { dark: boolean; chartType: 'velas' | 'líneas'; livePrice: number }) {
+  const dates = [
+    '02 Sep', '03 Sep', '04 Sep', '05 Sep', '08 Sep', '09 Sep', '10 Sep',
+    '11 Sep', '12 Sep', '15 Sep', '16 Sep', '17 Sep', '18 Sep', '19 Sep'
+  ]
+  const seed = [
+    175.2, 177.8, 174.1, 179.5, 182.3, 180.6, 183.1,
+    181.4, 185.2, 187.9, 184.3, 188.7, 191.2, livePrice
+  ]
+
+  const data = dates.map((date, i) => {
+    const close = seed[i]
+    const open = i === 0 ? 173.5 : seed[i - 1]
+    const high = Math.max(open, close) + (Math.sin(i) * 0.5 + 1) * 1.5
+    const low = Math.min(open, close) - (Math.cos(i) * 0.5 + 1) * 1.5
+    return { date, open, close, high, low, volume: Math.floor(8e6 + (Math.sin(i * 1.3) + 1) * 6e6) }
+  })
+
   const W = 620, H = 220
   const PAD = { top: 12, right: 10, bottom: 26, left: 54 }
   const lows = data.map(d => d.low)
@@ -148,15 +120,29 @@ function SvgCandlestick({ dark, chartType }: { dark: boolean; chartType: 'velas'
   )
 }
 
-// ── Main App Component ────────────────────────────────────────────────────────
+// ── App Content Component with Full Market Context Integration ────────────────
 
-export default function App() {
+function AppContent() {
   const [dark, setDark] = useState<boolean>(false)
   const [currentView, setCurrentView] = useState<View>('dashboard')
   const [tradingTicker, setTradingTicker] = useState<string>('BVN')
   const [searchQuery, setSearchQuery] = useState('')
   const [searchFocused, setSearchFocused] = useState(false)
   const [toastMsg, setToastMsg] = useState<string | null>(null)
+  const [showNotifs, setShowNotifs] = useState(false)
+
+  const {
+    assets,
+    assetList,
+    buyingPower,
+    positions,
+    portfolioValue,
+    dayPnlUsd,
+    dayPnlPct,
+    totalReturnPct,
+    unreadCount,
+    markNotificationsAsRead
+  } = useMarket()
 
   // Toggle Theme
   useEffect(() => {
@@ -185,6 +171,15 @@ export default function App() {
     { id: 'leaderboard', label: 'Liga / Leaderboard', icon: Trophy },
   ]
 
+  // Top movers sorted by absolute change
+  const topMovers = useMemo(() => {
+    return [...assetList]
+      .sort((a, b) => Math.abs(b.changePct) - Math.abs(a.changePct))
+      .slice(0, 6)
+  }, [assetList])
+
+  const aaplAsset = assets['AAPL'] || { price: 190.12, changePct: -0.70 }
+
   // Render Mobile View directly if active
   if (currentView === 'mobile') {
     return <MobileView onBack={() => setCurrentView('dashboard')} />
@@ -193,7 +188,8 @@ export default function App() {
   return (
     <div className="min-h-screen flex flex-col t-bg text-[var(--text1)] selection:bg-[#C5961A]/30">
       {/* ── TOP NAVBAR ──────────────────────────────────────────────────────── */}
-      <header className="sticky top-0 z-40 w-full h-16 border-b t-border px-4 lg:px-6 flex items-center justify-between shadow-sm"
+      <header
+        className="sticky top-0 z-40 w-full h-16 border-b t-border px-4 lg:px-6 flex items-center justify-between shadow-sm"
         style={{
           background: dark ? '#0D1117' : '#1F3864',
           color: '#FFFFFF'
@@ -224,14 +220,14 @@ export default function App() {
             onChange={e => setSearchQuery(e.target.value)}
             onFocus={() => setSearchFocused(true)}
             onBlur={() => setTimeout(() => setSearchFocused(false), 200)}
-            placeholder="Buscar ticker (ej. BVN, FSM, AAPL)..."
+            placeholder="Buscar ticker (ej. BVN, FSM, AAPL, BTC)..."
             className="w-full pl-9 pr-4 py-2 rounded-xl text-xs bg-white/10 text-white placeholder-blue-200/50 border border-white/20 outline-none focus:bg-white/20 focus:border-[#C5961A] transition-all"
           />
 
           {/* Quick search dropdown */}
           {searchFocused && searchQuery && (
             <div className="absolute top-12 left-0 right-0 rounded-xl bg-white dark:bg-[#161B22] border t-border text-gray-900 dark:text-gray-100 shadow-xl overflow-hidden z-50">
-              {POSITIONS.filter(p => p.ticker.toLowerCase().includes(searchQuery.toLowerCase()) || p.name.toLowerCase().includes(searchQuery.toLowerCase())).map(p => (
+              {assetList.filter(p => p.ticker.toLowerCase().includes(searchQuery.toLowerCase()) || p.name.toLowerCase().includes(searchQuery.toLowerCase())).map(p => (
                 <div
                   key={p.ticker}
                   onMouseDown={() => {
@@ -241,15 +237,35 @@ export default function App() {
                   className="px-4 py-2.5 hover:bg-blue-50 dark:hover:bg-white/5 cursor-pointer flex items-center justify-between text-xs"
                 >
                   <span className="font-bold text-blue-600 dark:text-blue-400">{p.ticker} — {p.name}</span>
-                  <span className="font-mono font-bold">${fmt(p.curPrice)}</span>
+                  <span className="font-mono font-bold">${fmt(p.price)}</span>
                 </div>
               ))}
             </div>
           )}
         </div>
 
-        {/* Right Controls: Mobile View Toggle + Sun/Moon + User */}
+        {/* Right Controls: Notifications + Mobile View Toggle + Sun/Moon + User */}
         <div className="flex items-center gap-3">
+          {/* Notifications Bell with Unread Badge */}
+          <div className="relative">
+            <button
+              onClick={() => {
+                setShowNotifs(v => !v)
+                markNotificationsAsRead()
+              }}
+              className="relative p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white border border-white/20 transition-all flex items-center justify-center"
+              title="Notificaciones y Alertas en Vivo"
+            >
+              <Bell size={17} className={unreadCount > 0 ? 'text-amber-300 animate-bounce' : 'text-blue-200'} />
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 text-white font-bold text-[10px] flex items-center justify-center animate-pulse">
+                  {unreadCount}
+                </span>
+              )}
+            </button>
+            {showNotifs && <NotificationsDropdown dark={dark} onClose={() => setShowNotifs(false)} />}
+          </div>
+
           {/* Botón Destacado "Vista Mobile (390x844px)" */}
           <button
             onClick={() => setCurrentView('mobile')}
@@ -283,6 +299,9 @@ export default function App() {
           </div>
         </div>
       </header>
+
+      {/* ── LIVE SIMULATION ENGINE TOOLBAR ─────────────────────────────────── */}
+      <LiveSimulationBar dark={dark} />
 
       {/* ── MAIN LAYOUT: SIDEBAR + CONTENT ───────────────────────────────────── */}
       <div className="flex-1 flex w-full">
@@ -332,8 +351,11 @@ export default function App() {
           {/* User Quick Card at sidebar bottom */}
           <div className="p-3 rounded-xl bg-black/5 dark:bg-white/5 border t-border flex flex-col gap-1 text-xs">
             <span className="text-[10px] text-gray-400 font-semibold uppercase">Poder Disponible</span>
-            <span className="font-extrabold font-mono text-base t-text1">$68,420.00</span>
-            <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">● Simulación en vivo</span>
+            <span className="font-extrabold font-mono text-base t-text1">${fmt(buyingPower)}</span>
+            <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              Simulación en vivo
+            </span>
           </div>
         </aside>
 
@@ -381,17 +403,23 @@ export default function App() {
                 <div className="t-card border t-border rounded-xl p-5 t-shadow flex flex-col justify-between">
                   <div className="flex justify-between items-center text-xs font-bold uppercase tracking-wider t-text2">
                     <span>Valor del Portafolio</span>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 font-bold">
-                      ▲ +1.99% hoy
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                      dayPnlPct >= 0 ? 'bg-emerald-500/10 text-emerald-600' : 'bg-rose-500/10 text-rose-600'
+                    }`}>
+                      {dayPnlPct >= 0 ? '▲ +' : '▼ '}{dayPnlPct.toFixed(2)}% hoy
                     </span>
                   </div>
                   <div className="my-2">
-                    <div className="text-3xl font-black font-mono-data t-text1 tracking-tight">$125,430.50</div>
+                    <div className="text-3xl font-black font-mono-data t-text1 tracking-tight">${fmt(portfolioValue)}</div>
                     <span className="text-[11px] t-text3">Capital inicial simulado: $100,000.00</span>
                   </div>
                   <div className="pt-2 border-t t-border flex justify-between text-xs font-semibold t-text2">
                     <span>Retorno Total:</span>
-                    <span className="text-emerald-600 font-mono-data font-bold">+25.43%</span>
+                    <span className={`font-mono-data font-bold ${
+                      totalReturnPct >= 0 ? 'text-emerald-600' : 'text-rose-600'
+                    }`}>
+                      {totalReturnPct >= 0 ? '+' : ''}{totalReturnPct.toFixed(2)}%
+                    </span>
                   </div>
                 </div>
 
@@ -399,13 +427,19 @@ export default function App() {
                 <div className="t-card border t-border rounded-xl p-5 t-shadow flex flex-col justify-between">
                   <div className="flex justify-between items-center text-xs font-bold uppercase tracking-wider t-text2">
                     <span>Ganancia del Día</span>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 font-bold font-mono">
-                      +$2,450.00
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold font-mono ${
+                      dayPnlUsd >= 0 ? 'bg-emerald-500/10 text-emerald-600' : 'bg-rose-500/10 text-rose-600'
+                    }`}>
+                      {dayPnlUsd >= 0 ? '+$' : '-$'}{fmt(Math.abs(dayPnlUsd))}
                     </span>
                   </div>
                   <div className="my-2">
-                    <div className="text-3xl font-black font-mono-data text-emerald-600 tracking-tight">+$2,450.00</div>
-                    <span className="text-[11px] t-text3">5 posiciones cerradas con profit</span>
+                    <div className={`text-3xl font-black font-mono-data tracking-tight ${
+                      dayPnlUsd >= 0 ? 'text-emerald-600' : 'text-rose-600'
+                    }`}>
+                      {dayPnlUsd >= 0 ? '+$' : '-$'}{fmt(Math.abs(dayPnlUsd))}
+                    </div>
+                    <span className="text-[11px] t-text3">Posiciones activas calculadas en vivo</span>
                   </div>
                   <div className="pt-2 border-t t-border flex justify-between text-xs font-semibold t-text2">
                     <span>Efectividad (Win Rate):</span>
@@ -422,12 +456,12 @@ export default function App() {
                     </span>
                   </div>
                   <div className="my-2">
-                    <div className="text-3xl font-black font-mono-data t-text1 tracking-tight">$68,420.00</div>
+                    <div className="text-3xl font-black font-mono-data t-text1 tracking-tight">${fmt(buyingPower)}</div>
                     <span className="text-[11px] t-text3">Margen disponible para nuevas órdenes</span>
                   </div>
                   <div className="pt-2 border-t t-border flex justify-between text-xs font-semibold t-text2">
                     <span>Fondo en Efectivo:</span>
-                    <span className="font-mono-data font-bold t-text1">$68,420.00</span>
+                    <span className="font-mono-data font-bold t-text1">${fmt(buyingPower)}</span>
                   </div>
                 </div>
 
@@ -460,8 +494,11 @@ export default function App() {
                   <div className="flex flex-wrap items-center justify-between pb-3 border-b t-border gap-2">
                     <div className="flex items-center gap-3">
                       <span className="text-base font-black t-text1">AAPL · S&P 500 Benchmark</span>
-                      <span className="text-xs font-bold text-emerald-600 font-mono-data flex items-center gap-1">
-                        <TrendingUp size={14} /> $190.12 (+1.99%)
+                      <span className={`text-xs font-bold font-mono-data flex items-center gap-1 ${
+                        aaplAsset.changePct >= 0 ? 'text-emerald-600' : 'text-rose-600'
+                      }`}>
+                        {aaplAsset.changePct >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+                        ${fmt(aaplAsset.price)} ({fmtSign(aaplAsset.changePct)}%)
                       </span>
                     </div>
 
@@ -482,12 +519,15 @@ export default function App() {
                   </div>
 
                   <div className="flex-1 my-2">
-                    <SvgCandlestick dark={dark} chartType="velas" />
+                    <SvgCandlestick dark={dark} chartType="velas" livePrice={aaplAsset.price} />
                   </div>
 
                   <div className="flex justify-between items-center pt-2 border-t t-border text-[11px] t-text3 font-mono-data">
-                    <span>Fuente: NYSE / Market Data Live</span>
-                    <span>Volumen promedio: 58.4M</span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                      Fuente: NYSE / BVL Emulado en Tiempo Real
+                    </span>
+                    <span>Volumen hoy: {fmt(aaplAsset.volume || 58432100, 0)}</span>
                   </div>
                 </div>
 
@@ -495,11 +535,14 @@ export default function App() {
                 <div className="lg:col-span-4 t-card border t-border rounded-xl p-5 t-shadow flex flex-col justify-between">
                   <div className="flex items-center justify-between pb-3 border-b t-border">
                     <h3 className="text-xs font-bold uppercase tracking-wider t-text1">Top Movers del Día</h3>
-                    <span className="text-[10px] font-semibold text-emerald-600">En Vivo</span>
+                    <span className="text-[10px] font-semibold text-emerald-600 flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                      En Vivo
+                    </span>
                   </div>
 
                   <div className="flex flex-col gap-2 my-1 overflow-y-auto max-h-[260px] pr-1">
-                    {TOP_MOVERS.map(m => (
+                    {topMovers.map(m => (
                       <div
                         key={m.ticker}
                         onClick={() => navigateToTrade(m.ticker)}
@@ -511,7 +554,7 @@ export default function App() {
                           </span>
                           <div>
                             <span className="font-bold text-xs t-text1 block">{m.ticker}</span>
-                            <span className="text-[10px] t-text3 block">{m.name}</span>
+                            <span className="text-[10px] t-text3 block truncate max-w-[100px]">{m.name}</span>
                           </div>
                         </div>
 
@@ -533,7 +576,7 @@ export default function App() {
                             <span className={`font-mono-data font-bold text-[10px] ${
                               m.change >= 0 ? 'text-emerald-600' : 'text-rose-600'
                             }`}>
-                              {fmtSign(m.change)}%
+                              {fmtSign(m.changePct)}%
                             </span>
                           </div>
                         </div>
@@ -555,10 +598,10 @@ export default function App() {
                 <div className="flex flex-wrap items-center justify-between pb-3 border-b t-border gap-2">
                   <div>
                     <h3 className="text-sm font-bold t-text1">Mis Posiciones Activas</h3>
-                    <p className="text-xs t-text3">Haz clic en cualquier activo o en 'Operar' para abrir la pantalla de Trading</p>
+                    <p className="text-xs t-text3">Haz clic en cualquier activo o en 'Operar' para ejecutar órdenes en tiempo real</p>
                   </div>
                   <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
-                    5 Activos en Cartera
+                    {positions.length} Activos en Cartera
                   </span>
                 </div>
 
@@ -577,9 +620,8 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {POSITIONS.map(p => {
-                        const totalVal = p.qty * p.curPrice
-                        const pnl = (p.curPrice - p.avgPrice) * p.qty
+                      {positions.map(p => {
+                        const isProfit = p.pnlPct >= 0
                         return (
                           <tr
                             key={p.ticker}
@@ -595,10 +637,12 @@ export default function App() {
                             <td className="py-3 px-3 text-right font-bold t-text1">{p.qty}</td>
                             <td className="py-3 px-3 text-right t-text2">${fmt(p.avgPrice)}</td>
                             <td className="py-3 px-3 text-right font-bold t-text1">${fmt(p.curPrice)}</td>
-                            <td className="py-3 px-3 text-right font-bold t-text1">${fmt(totalVal)}</td>
+                            <td className="py-3 px-3 text-right font-bold t-text1">${fmt(p.totalValue)}</td>
                             <td className="py-3 px-3 text-right">
-                              <span className="text-[11px] font-bold text-emerald-600 bg-emerald-500/10 px-2 py-0.5 rounded-full">
-                                +{fmt(p.changePct)}%
+                              <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                                isProfit ? 'text-emerald-600 bg-emerald-500/10' : 'text-rose-600 bg-rose-500/10'
+                              }`}>
+                                {isProfit ? '+' : ''}{fmt(p.pnlPct)}%
                               </span>
                             </td>
                             <td className="py-3 px-3 text-center">
@@ -626,5 +670,15 @@ export default function App() {
         </main>
       </div>
     </div>
+  )
+}
+
+// ── Root App Component wrapped in MarketProvider ──────────────────────────────
+
+export default function App() {
+  return (
+    <MarketProvider>
+      <AppContent />
+    </MarketProvider>
   )
 }

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import {
   Trophy, Award, Flame, Search, ChevronRight, Users,
   TrendingUp, TrendingDown, Star, Sparkles, Shield, Target,
@@ -8,6 +8,7 @@ import {
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid
 } from 'recharts'
+import { useMarket } from './context/MarketContext'
 
 interface LeaderboardProps {
   dark?: boolean
@@ -209,6 +210,7 @@ const BADGES = [
 ]
 
 export default function Leaderboard({ dark = false, onTrade, onBackToDashboard }: LeaderboardProps) {
+  const { portfolioValue, dayPnlUsd, dayPnlPct, orderHistory, positions } = useMarket()
   const [period, setPeriod] = useState<'semanal' | 'mensual' | 'all' | 'liga'>('semanal')
   const [activeTournament, setActiveTournament] = useState('diamante')
   const [searchQuery, setSearchQuery] = useState('')
@@ -220,12 +222,31 @@ export default function Leaderboard({ dark = false, onTrade, onBackToDashboard }
   const fmt = (n: number, d = 2) =>
     n.toLocaleString('es-PE', { minimumFractionDigits: d, maximumFractionDigits: d })
 
-  const filteredCompetitors = COMPETITORS_DATA.filter(c =>
+  const liveCompetitors = useMemo(() => {
+    return COMPETITORS_DATA.map(c => {
+      if (c.isCurrentUser) {
+        return {
+          ...c,
+          portfolioValue,
+          pnlUsd: dayPnlUsd,
+          pnlPct: Number(dayPnlPct.toFixed(2)),
+          tradesCount: Math.max(c.tradesCount, orderHistory.length),
+          topAssets: positions.slice(0, 4).map(p => ({
+            ticker: p.ticker,
+            pct: Math.round((p.totalValue / (portfolioValue || 1)) * 100)
+          }))
+        }
+      }
+      return c
+    })
+  }, [portfolioValue, dayPnlUsd, dayPnlPct, orderHistory, positions])
+
+  const filteredCompetitors = liveCompetitors.filter(c =>
     c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     c.handle.toLowerCase().includes(searchQuery.toLowerCase())
   )
 
-  const currentUser = COMPETITORS_DATA.find(c => c.isCurrentUser)!
+  const currentUser = liveCompetitors.find(c => c.isCurrentUser) || liveCompetitors[0]
 
   return (
     <div className="flex flex-col flex-1 overflow-y-auto p-4 gap-4 t-bg min-h-0">

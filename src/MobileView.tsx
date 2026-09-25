@@ -6,6 +6,7 @@ import {
   ArrowLeft, ArrowRight, TrendingUp, TrendingDown, ChevronRight,
   Sliders, Bell, CheckCircle2, Shield, Flame, Trophy
 } from 'lucide-react'
+import { useMarket } from './context/MarketContext'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -118,7 +119,11 @@ function PhoneFrame({
 
 // ── Screen 1: Mi Portafolio ───────────────────────────────────────────────────
 
-function MobilePortfolioScreen({ onSelect }: { onSelect?: (p: Position) => void }) {
+function MobilePortfolioScreen({ onSelect }: { onSelect?: (p: any) => void }) {
+  const { portfolioValue, dayPnlUsd, dayPnlPct, positions } = useMarket()
+  const intVal = Math.floor(portfolioValue).toLocaleString('es-PE')
+  const decVal = (portfolioValue % 1).toFixed(2).substring(1)
+
   return (
     <div className="h-full overflow-y-auto bg-[#F8F9FB] pb-20 font-sans">
       {/* Status Bar spacing & greeting */}
@@ -138,15 +143,15 @@ function MobilePortfolioScreen({ onSelect }: { onSelect?: (p: Position) => void 
           Valor Total del Portafolio
         </span>
         <div className="flex items-baseline gap-1 my-1">
-          <span className="text-3xl font-black font-mono tracking-tight">$125,430</span>
-          <span className="text-base text-blue-200 font-mono">.50</span>
+          <span className="text-3xl font-black font-mono tracking-tight">${intVal}</span>
+          <span className="text-base text-blue-200 font-mono">{decVal}</span>
         </div>
 
         <div className="flex items-center gap-2 mb-3">
           <span className="bg-emerald-500/25 text-emerald-400 font-bold text-xs px-2 py-0.5 rounded-full font-mono">
-            ▲ +$2,450.00
+            {dayPnlUsd >= 0 ? '▲ +' : '▼ -'}${Math.abs(dayPnlUsd).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </span>
-          <span className="text-xs text-blue-200/80 font-medium">+1.99% hoy</span>
+          <span className="text-xs text-blue-200/80 font-medium">{dayPnlPct >= 0 ? '+' : ''}{dayPnlPct.toFixed(2)}% hoy</span>
         </div>
 
         {/* Recharts Area Chart */}
@@ -182,41 +187,44 @@ function MobilePortfolioScreen({ onSelect }: { onSelect?: (p: Position) => void 
       {/* Positions list header */}
       <div className="px-5 py-2 flex justify-between items-center">
         <span className="text-sm font-bold text-[#0D1B2E]">Mis Posiciones Activas</span>
-        <span className="text-xs font-bold text-[#C5961A]">6 activos</span>
+        <span className="text-xs font-bold text-[#C5961A]">{positions.length} activos</span>
       </div>
 
       {/* Positions list items */}
       <div className="px-4 flex flex-col gap-2">
-        {positions.map(p => (
-          <div
-            key={p.ticker}
-            onClick={() => onSelect?.(p)}
-            className="p-3 bg-white rounded-xl shadow-sm border border-gray-100 flex items-center justify-between cursor-pointer hover:shadow-md transition-shadow"
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gray-50 flex items-center justify-center text-lg shadow-inner">
-                {p.emoji}
+        {positions.map(p => {
+          const isUp = p.pnlPct >= 0
+          return (
+            <div
+              key={p.ticker}
+              onClick={() => onSelect?.(p as any)}
+              className="p-3 bg-white rounded-xl shadow-sm border border-gray-100 flex items-center justify-between cursor-pointer hover:shadow-md transition-shadow"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-600/10 text-blue-600 font-bold flex items-center justify-center text-xs shadow-inner">
+                  {p.ticker.slice(0, 2)}
+                </div>
+                <div>
+                  <span className="font-extrabold text-sm text-[#0D1B2E] block">{p.ticker}</span>
+                  <span className="text-[10px] text-gray-400 block">{p.qty} acciones</span>
+                </div>
               </div>
-              <div>
-                <span className="font-extrabold text-sm text-[#0D1B2E] block">{p.ticker}</span>
-                <span className="text-[10px] text-gray-400 block">{p.shares} acciones</span>
-              </div>
-            </div>
 
-            <div className="text-right">
-              <span className="font-bold font-mono text-sm text-[#0D1B2E] block">
-                ${p.value.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-              </span>
-              <span
-                className={`text-[10px] font-bold font-mono ${
-                  p.change >= 0 ? 'text-emerald-600' : 'text-rose-600'
-                }`}
-              >
-                {p.change >= 0 ? '▲ +' : '▼ '}{p.change}%
-              </span>
+              <div className="text-right">
+                <span className="font-bold font-mono text-sm text-[#0D1B2E] block">
+                  ${p.totalValue.toLocaleString('es-PE', { minimumFractionDigits: 2 })}
+                </span>
+                <span
+                  className={`text-[10px] font-bold font-mono ${
+                    isUp ? 'text-emerald-600' : 'text-rose-600'
+                  }`}
+                >
+                  {isUp ? '▲ +' : '▼ '}{p.pnlPct.toFixed(2)}%
+                </span>
+              </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
 
       {/* Bottom Navigation Bar */}
@@ -361,10 +369,30 @@ function MobileDetailScreen({
 // ── Screen 3: Orden Rápida (Bottom Sheet with Backdrop Blur) ───────────────────
 
 function MobileOrderScreen() {
+  const { assets, executeOrder } = useMarket()
   const [side, setSide] = useState<'Comprar' | 'Vender'>('Comprar')
   const [qty, setQty] = useState(15)
-  const price = 190.12
+  const [confirmedMsg, setConfirmedMsg] = useState<string | null>(null)
+  const asset = assets['AAPL'] || Object.values(assets)[0]
+  const price = asset.price
   const total = (qty * price).toFixed(2)
+
+  const handleConfirm = () => {
+    const res = executeOrder({
+      ticker: asset.ticker,
+      side: side === 'Comprar' ? 'compra' : 'venta',
+      orderType: 'Mercado',
+      qty,
+      price
+    })
+    if (res.success) {
+      setConfirmedMsg(`✓ ${qty} ${asset.ticker} ${side === 'Comprar' ? 'Compradas' : 'Vendidas'}`)
+      setTimeout(() => setConfirmedMsg(null), 3000)
+    } else {
+      setConfirmedMsg(`✕ ${res.message}`)
+      setTimeout(() => setConfirmedMsg(null), 3000)
+    }
+  }
 
   return (
     <div className="h-full bg-[#F8F9FB] relative font-sans overflow-hidden">
@@ -383,7 +411,7 @@ function MobileOrderScreen() {
         <div className="flex justify-between items-center">
           <div>
             <h3 className="text-base font-extrabold text-[#0D1B2E]">Orden Rápida</h3>
-            <span className="text-xs text-gray-500 font-medium">🍎 AAPL · ${price} USD</span>
+            <span className="text-xs text-gray-500 font-medium">🍎 AAPL · ${price.toFixed(2)} USD</span>
           </div>
           <div className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center text-xs text-gray-500 font-bold">
             ✕
@@ -458,7 +486,7 @@ function MobileOrderScreen() {
         <div className="p-3 bg-gray-50 rounded-xl border border-gray-100 flex flex-col gap-1 text-xs">
           <div className="flex justify-between text-gray-500">
             <span>Precio estimado:</span>
-            <span className="font-mono font-semibold">${price}</span>
+            <span className="font-mono font-semibold">${price.toFixed(2)}</span>
           </div>
           <div className="flex justify-between text-gray-500">
             <span>Cantidad:</span>
@@ -467,16 +495,21 @@ function MobileOrderScreen() {
           <div className="h-[1px] bg-gray-200 my-0.5" />
           <div className="flex justify-between font-bold text-sm">
             <span className="text-[#0D1B2E]">Total Estimado:</span>
-            <span className="font-mono text-emerald-600">${Number(total).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+            <span className="font-mono text-emerald-600">${Number(total).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</span>
           </div>
         </div>
 
         {/* Confirm Order Button */}
         <button
-          className="w-full py-3.5 rounded-xl text-white font-extrabold text-sm shadow-xl text-center"
-          style={{ background: 'linear-gradient(135deg, #1B7E34 0%, #22A041 100%)' }}
+          onClick={handleConfirm}
+          className="w-full py-3.5 rounded-xl text-white font-extrabold text-sm shadow-xl text-center active:scale-95 transition-transform"
+          style={{
+            background: side === 'Comprar'
+              ? 'linear-gradient(135deg, #1B7E34 0%, #22A041 100%)'
+              : 'linear-gradient(135deg, #C62828 0%, #E53535 100%)'
+          }}
         >
-          Confirmar Compra — ${Number(total).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+          {confirmedMsg ? confirmedMsg : `Confirmar ${side} — $${Number(total).toLocaleString('es-PE', { minimumFractionDigits: 2 })}`}
         </button>
       </div>
     </div>

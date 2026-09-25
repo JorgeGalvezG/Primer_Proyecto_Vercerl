@@ -5,6 +5,7 @@ import {
   CheckCircle2, AlertTriangle, ArrowRight
 } from 'lucide-react'
 import { LineChart, Line, ResponsiveContainer } from 'recharts'
+import { useMarket } from './context/MarketContext'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -364,8 +365,7 @@ export default function Watchlist({
   onTrade,
   initialOpenModal = false
 }: WatchlistProps) {
-  const [assets, setAssets] = useState<Asset[]>(INITIAL_ASSETS)
-  const [alerts, setAlerts] = useState<Alert[]>(INITIAL_ALERTS)
+  const { assetList, alerts, addAlert, toggleAlert, deleteAlert } = useMarket()
   const [activeFilter, setActiveFilter] = useState<'Todos' | AssetType>('Todos')
   const [searchQuery, setSearchQuery] = useState('')
   const [modalOpen, setModalOpen] = useState(initialOpenModal)
@@ -374,14 +374,14 @@ export default function Watchlist({
 
   // Filtered Assets
   const filteredAssets = useMemo(() => {
-    return assets.filter(a => {
+    return assetList.filter(a => {
       const matchType = activeFilter === 'Todos' || a.type === activeFilter
       const matchSearch =
         a.ticker.toLowerCase().includes(searchQuery.toLowerCase()) ||
         a.name.toLowerCase().includes(searchQuery.toLowerCase())
       return matchType && matchSearch
     })
-  }, [assets, activeFilter, searchQuery])
+  }, [assetList, activeFilter, searchQuery])
 
   // Open modal with specific ticker
   const handleOpenAlertModal = (ticker: string = 'AAPL') => {
@@ -391,25 +391,18 @@ export default function Watchlist({
 
   // Toggle Alert enabled status
   const handleToggleAlert = (id: number) => {
-    setAlerts(prev =>
-      prev.map(a => (a.id === id ? { ...a, enabled: !a.enabled } : a))
-    )
+    toggleAlert(id)
   }
 
   // Delete Alert
   const handleDeleteAlert = (id: number) => {
-    setAlerts(prev => prev.filter(a => a.id !== id))
+    deleteAlert(id)
   }
 
   // Add Alert
-  const handleAddAlert = (alertData: Omit<Alert, 'id' | 'status'>) => {
-    const newAlert: Alert = {
-      ...alertData,
-      id: Date.now(),
-      status: 'activa',
-    }
-    setAlerts([newAlert, ...alerts])
-    setSuccessToast(`Alerta configurada para ${alertData.ticker} (${alertData.condition} ${alertData.value})`)
+  const handleAddAlert = (alertData: any) => {
+    addAlert(alertData)
+    setSuccessToast(`Alerta configurada para ${alertData.ticker} (${alertData.condition} $${alertData.value})`)
     setTimeout(() => setSuccessToast(null), 3500)
   }
 
@@ -423,7 +416,7 @@ export default function Watchlist({
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-black t-text1">Watchlist & Alertas Bursátiles</h1>
             <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-[#1F3864]/10 dark:bg-[#58A6FF]/20 text-[#1F3864] dark:text-[#58A6FF] border t-border">
-              {filteredAssets.length} de {assets.length} Activos
+              {filteredAssets.length} de {assetList.length} Activos
             </span>
           </div>
           <p className="text-xs t-text2 mt-1">
@@ -613,7 +606,7 @@ export default function Watchlist({
       {modalOpen && (
         <NewAlertModal
           initialTicker={modalTicker}
-          assets={assets}
+          assets={assetList as any}
           onClose={() => setModalOpen(false)}
           onSave={handleAddAlert}
         />

@@ -3,6 +3,7 @@ import {
   TrendingUp, TrendingDown, ChevronDown, AlertCircle, CheckCircle2,
   Clock, XCircle, ArrowLeft, Shield, Sliders, BarChart2
 } from 'lucide-react'
+import { useMarket } from './context/MarketContext'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -352,6 +353,16 @@ export default function Trade({
   onBackToDashboard,
   onOrderSuccess
 }: TradeProps) {
+  const {
+    assets,
+    buyingPower,
+    executeOrder,
+    orderHistory,
+    getCandlesForTicker,
+    getOrderBookForTicker,
+    positions
+  } = useMarket()
+
   const [selectedTicker, setSelectedTicker] = useState<string>(initialTicker)
   const [side, setSide] = useState<Side>('compra')
   const [orderType, setOrderType] = useState<OrderType>('Mercado')
@@ -359,19 +370,22 @@ export default function Trade({
   const [limitPrice, setLimitPrice] = useState<number>(190.12)
   const [period, setPeriod] = useState<Period>('1D')
   const [indicator, setIndicator] = useState<Indicator>('SMA')
-  const [orderHistory, setOrderHistory] = useState(INITIAL_ORDER_HISTORY)
   const [successToast, setSuccessToast] = useState<string | null>(null)
+  const [errorToast, setErrorToast] = useState<string | null>(null)
 
-  const asset = ASSETS_MAP[selectedTicker] || ASSETS_MAP['AAPL']
-  const candles = React.useMemo(() => genCandles(36, asset.price * 0.97, asset.price * 0.015), [asset.price])
-  const book = React.useMemo(() => genBook(asset.price), [asset.price])
+  const asset = assets[selectedTicker] || assets['AAPL'] || Object.values(assets)[0]
+  const candles = React.useMemo(() => getCandlesForTicker(selectedTicker), [getCandlesForTicker, selectedTicker, asset?.price])
+  const book = React.useMemo(() => getOrderBookForTicker(selectedTicker), [getOrderBookForTicker, selectedTicker, asset?.price])
 
   // Calculation of effective price & total cost
   const effectivePrice = orderType === 'Mercado' ? asset.price : (limitPrice || asset.price)
   const totalCost = quantity * effectivePrice
-  const exceedsPower = side === 'compra' && totalCost > BUYING_POWER
+  const exceedsPower = side === 'compra' && totalCost > buyingPower
   const maxAskQty = Math.max(...book.asks.map(a => a.qty))
   const maxBidQty = Math.max(...book.bids.map(b => b.qty))
+
+  const currentHolding = positions.find(p => p.ticker === asset.ticker)
+  const ownedQty = currentHolding?.qty || 0
 
   const rangePct = Math.min(
     100,
@@ -379,29 +393,37 @@ export default function Trade({
   )
 
   const handlePercentageClick = (pct: number) => {
-    const budget = BUYING_POWER * pct
-    const calcQty = Math.floor(budget / effectivePrice)
-    setQuantity(Math.max(1, calcQty))
+    if (side === 'compra') {
+      const budget = buyingPower * pct
+      const calcQty = Math.floor(budget / effectivePrice)
+      setQuantity(Math.max(1, calcQty))
+    } else {
+      const calcQty = Math.floor(ownedQty * pct)
+      setQuantity(Math.max(1, calcQty || 1))
+    }
   }
 
   const handleExecuteOrder = (e: React.FormEvent) => {
     e.preventDefault()
     if (exceedsPower) return
 
-    const newOrder = {
-      id: Date.now(),
-      date: 'Hoy Justo ahora',
+    const res = executeOrder({
+      ticker: asset.ticker,
       side,
-      type: orderType,
+      orderType,
       qty: quantity,
-      price: effectivePrice,
-      status: 'Ejecutada',
+      price: effectivePrice
+    })
+
+    if (res.success) {
+      setSuccessToast(res.message)
+      setErrorToast(null)
+      onOrderSuccess?.(res.message)
+      setTimeout(() => setSuccessToast(null), 4000)
+    } else {
+      setErrorToast(res.message)
+      setTimeout(() => setErrorToast(null), 4000)
     }
-    setOrderHistory([newOrder, ...orderHistory])
-    const msg = `Orden de ${side.toUpperCase()} de ${quantity} ${asset.ticker} ejecutada con éxito a $${fmt(effectivePrice)}`
-    setSuccessToast(msg)
-    onOrderSuccess?.(msg)
-    setTimeout(() => setSuccessToast(null), 4000)
   }
 
   return (
@@ -419,13 +441,13 @@ export default function Trade({
           )}
           <div className="flex items-center gap-2">
             <span className="text-xs font-bold uppercase tracking-wider t-text2">Operar Activo:</span>
-            <div className="flex items-center gap-1">
-              {Object.keys(ASSETS_MAP).map(t => (
+            <div className="flex items-center gap-1 flex-wrap">
+              {Object.keys(assets).map(t => (
                 <button
                   key={t}
                   onClick={() => {
                     setSelectedTicker(t)
-                    setLimitPrice(ASSETS_MAP[t].price)
+                    setLimitPrice(assets[t].price)
                   }}
                   className={`px-2.5 py-1 text-xs font-bold rounded-md transition-all ${
                     selectedTicker === t
@@ -443,10 +465,10 @@ export default function Trade({
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-xs">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="font-semibold text-emerald-600 dark:text-emerald-400">Mercado Abierto NYSE / BVL</span>
+            <span className="font-semibold text-emerald-600 dark:text-emerald-400">Mercado Abierto (En Vivo)</span>
           </div>
           <div className="text-xs font-mono-data t-text2">
-            Poder de compra: <strong className="t-text1 font-bold">${fmt(BUYING_POWER)}</strong>
+            Poder de compra: <strong className="t-text1 font-bold">${fmt(buyingPower)}</strong>
           </div>
         </div>
       </div>
@@ -622,7 +644,7 @@ export default function Trade({
                 <tbody>
                   {orderHistory.map(ord => (
                     <tr key={ord.id} className="border-b t-border hover:bg-black/5 dark:hover:bg-white/5 transition-colors font-mono-data">
-                      <td className="py-2 px-2 t-text2 text-[11px]">{ord.date}</td>
+                      <td className="py-2 px-2 t-text2 text-[11px]">{ord.timestamp || (ord as any).date}</td>
                       <td className="py-2 px-2">
                         <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
                           ord.side === 'compra' ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-rose-500/15 text-rose-600 dark:text-rose-400'
@@ -771,7 +793,7 @@ export default function Trade({
               <div className="p-3 rounded-lg bg-black/5 dark:bg-white/5 border t-border flex flex-col gap-1.5 text-xs font-mono-data">
                 <div className="flex justify-between t-text2 text-[11px]">
                   <span>Poder de Compra:</span>
-                  <span className="font-bold t-text1">${fmt(BUYING_POWER)}</span>
+                  <span className="font-bold t-text1">${fmt(buyingPower)}</span>
                 </div>
                 <div className="flex justify-between t-text2 text-[11px]">
                   <span>Precio Estimado:</span>
@@ -792,7 +814,7 @@ export default function Trade({
                   <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
                   <div>
                     <span className="font-bold block">Fondos Insuficientes</span>
-                    El costo total de <strong>${fmt(totalCost)}</strong> excede tu poder de compra disponible de <strong>${fmt(BUYING_POWER)}</strong>.
+                    El costo total de <strong>${fmt(totalCost)}</strong> excede tu poder de compra disponible de <strong>${fmt(buyingPower)}</strong>.
                   </div>
                 </div>
               )}
