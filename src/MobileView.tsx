@@ -151,7 +151,7 @@ export default function MobileView({ onBack }: { onBack?: () => void }) {
           )}
           <div>
             <h1 className="text-base sm:text-lg font-black text-white leading-tight">
-              Ernesto Investing AI · Versión Móvil
+              Emulador_Bolsa_IHC · Versión Móvil
             </h1>
             <p className="text-[11px] text-blue-200/80">Pantalla única 100% interactiva con todas las funciones</p>
           </div>
@@ -226,7 +226,7 @@ export default function MobileView({ onBack }: { onBack?: () => void }) {
               </div>
               <div>
                 <span className="font-extrabold text-xs tracking-tight text-white block leading-tight">
-                  Ernesto Investing AI
+                  Emulador_Bolsa_IHC
                 </span>
                 <span className="text-[9px] text-blue-200/80 font-mono">IHC UNMSM · Mobile</span>
               </div>
@@ -896,7 +896,7 @@ export default function MobileView({ onBack }: { onBack?: () => void }) {
                   <span className="text-[10px] px-2 py-1 rounded-full bg-black/25 font-bold">1,420 Traders</span>
                 </div>
 
-                {/* Current User Jorge Gálvez Garro Card */}
+                {/* Current User Jorge Galvez Card */}
                 <div className={`p-3.5 rounded-2xl border flex items-center justify-between shadow-md ${
                   isDark ? 'bg-[#1F2937] border-amber-500/40' : 'bg-amber-50 border-amber-300'
                 }`}>
@@ -906,7 +906,7 @@ export default function MobileView({ onBack }: { onBack?: () => void }) {
                     </div>
                     <div>
                       <div className="flex items-center gap-1.5">
-                        <span className="font-extrabold text-xs">Jorge Gálvez (Tú)</span>
+                        <span className="font-extrabold text-xs">Jorge Galvez (Tú)</span>
                         <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-amber-400 text-black font-black">#128</span>
                       </div>
                       <span className="text-[10px] text-gray-500 block">Diamante · 4,850 XP</span>

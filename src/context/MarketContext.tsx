@@ -152,7 +152,7 @@ export interface MarketContextType {
   // Live Candlesticks & Depth Book helper
   candlesMap: Record<string, Candle[]>
   portfolioHistory: PortfolioPoint[]
-  getCandlesForTicker: (ticker: string) => Candle[]
+  getCandlesForTicker: (ticker: string, period?: string) => Candle[]
   getOrderBookForTicker: (ticker: string) => { asks: DepthLevel[]; bids: DepthLevel[] }
   
   // Active Flash Event
@@ -498,6 +498,121 @@ export function generateAllInitialCandles(): Record<string, Candle[]> {
     map[sym] = generateInitialCandles(INITIAL_ASSETS_MAP[sym].price, sym)
   })
   return map
+}
+
+export function generateCandlesForPeriod(
+  basePrice: number,
+  period = '1D',
+  liveTrades: TradeMarker[] = [],
+  ticker?: string
+): Candle[] {
+  const result: Candle[] = []
+  const now = new Date()
+
+  let count = 28
+  let stepMs = 60000
+  let volMultiplier = 0.005
+  let timeFormatter = (d: Date) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+
+  switch (period) {
+    case '1min':
+    case '1m':
+      count = 28
+      stepMs = 60000
+      volMultiplier = 0.004
+      timeFormatter = (d: Date) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      break
+    case '5min':
+    case '5m':
+      count = 28
+      stepMs = 5 * 60000
+      volMultiplier = 0.009
+      timeFormatter = (d: Date) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      break
+    case '15min':
+    case '15m':
+      count = 28
+      stepMs = 15 * 60000
+      volMultiplier = 0.016
+      timeFormatter = (d: Date) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      break
+    case '1H':
+    case '1h':
+      count = 26
+      stepMs = 3600000
+      volMultiplier = 0.028
+      timeFormatter = (d: Date) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      break
+    case '4H':
+    case '4h':
+      count = 24
+      stepMs = 4 * 3600000
+      volMultiplier = 0.046
+      timeFormatter = (d: Date) => `${d.getDate()}/${d.getMonth() + 1} ${d.getHours()}:00`
+      break
+    case '1D':
+    case '1d':
+      count = 26
+      stepMs = 86400000
+      volMultiplier = 0.08
+      timeFormatter = (d: Date) => `${String(d.getDate()).padStart(2, '0')} ${['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'][d.getMonth()]}`
+      break
+    case '1W':
+    case '1w':
+      count = 20
+      stepMs = 7 * 86400000
+      volMultiplier = 0.13
+      timeFormatter = (d: Date) => `${String(d.getDate()).padStart(2, '0')} ${['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'][d.getMonth()]}`
+      break
+    case '1M':
+    case '3M':
+    case '1Y':
+      count = 22
+      stepMs = 30 * 86400000
+      volMultiplier = 0.22
+      timeFormatter = (d: Date) => `${['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'][d.getMonth()]} ${String(d.getFullYear()).slice(-2)}`
+      break
+    default:
+      count = 26
+      stepMs = 86400000
+      volMultiplier = 0.06
+      break
+  }
+
+  let currentP = basePrice * (1 - volMultiplier * 0.45)
+  for (let i = count - 1; i >= 0; i--) {
+    const candleTime = new Date(now.getTime() - i * stepMs)
+    const timeStr = timeFormatter(candleTime)
+    const wave = (Math.sin(i * 0.65) * 0.6 + Math.cos(i * 0.42) * 0.4) * (basePrice * volMultiplier * 0.45)
+    const open = currentP
+    const close = i === 0 ? basePrice : Number((currentP + wave).toFixed(2))
+    const wickDelta = Math.abs(wave) * 0.45 + (basePrice * volMultiplier * 0.1)
+    const high = Number((Math.max(open, close) + wickDelta).toFixed(2))
+    const low = Number((Math.max(0.1, Math.min(open, close) - wickDelta)).toFixed(2))
+    const volume = Math.floor(1200000 + Math.abs(Math.sin(i * 1.4)) * 3500000 * Math.max(1, stepMs / 60000))
+
+    const tradesOnCandle: TradeMarker[] = []
+    if (i === 0 && liveTrades.length > 0) {
+      tradesOnCandle.push(...liveTrades)
+    } else if (ticker === 'AAPL' && i === Math.floor(count * 0.5)) {
+      tradesOnCandle.push({ id: 1, side: 'compra', qty: 25, price: Number((basePrice * 0.99).toFixed(2)), time: timeStr })
+    } else if (ticker === 'TSLA' && i === Math.floor(count * 0.75)) {
+      tradesOnCandle.push({ id: 2, side: 'venta', qty: 15, price: Number((basePrice * 1.01).toFixed(2)), time: timeStr })
+    }
+
+    result.push({
+      time: timeStr,
+      open,
+      high,
+      low,
+      close,
+      volume,
+      trades: tradesOnCandle.length > 0 ? tradesOnCandle : undefined
+    })
+    currentP = close
+  }
+
+  return result
 }
 
 const INITIAL_PORTFOLIO_HISTORY: PortfolioPoint[] = [
@@ -1275,12 +1390,22 @@ export function MarketProvider({ children }: { children: React.ReactNode }) {
 
   // ── Candlesticks & Depth Generators ─────────────────────────────────────────
 
-  const getCandlesForTicker = (ticker: string): Candle[] => {
-    if (candlesMap[ticker] && candlesMap[ticker].length > 0) {
-      return candlesMap[ticker]
-    }
+  const getCandlesForTicker = (ticker: string, period = '1D'): Candle[] => {
     const asset = assets[ticker] || assets['AAPL']
-    return generateInitialCandles(asset ? asset.price : 100, ticker)
+    const baseCandles = candlesMap[ticker] || []
+
+    const recentTrades: TradeMarker[] = []
+    baseCandles.forEach(c => {
+      if (c.trades && c.trades.length > 0) {
+        recentTrades.push(...c.trades)
+      }
+    })
+
+    if (!period || period === '1min' || period === '1m') {
+      if (baseCandles.length > 0) return baseCandles
+    }
+
+    return generateCandlesForPeriod(asset ? asset.price : 100, period, recentTrades, ticker)
   }
 
   const getOrderBookForTicker = (ticker: string) => {

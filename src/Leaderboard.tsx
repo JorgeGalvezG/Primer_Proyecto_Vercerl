@@ -142,7 +142,7 @@ const COMPETITORS_DATA: Competitor[] = [
   {
     rank: 128,
     prevRank: 135,
-    name: 'Jorge Gálvez Garro (Tú)',
+    name: 'Jorge Galvez (Tú)',
     handle: '@jgalvezg',
     avatar: '🎓',
     league: 'Diamante',

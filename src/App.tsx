@@ -155,10 +155,73 @@ function DashboardLiveChart({
 }) {
   const { portfolioHistory, getCandlesForTicker, assets } = useMarket()
   const [chartMode, setChartMode] = useState<'equity' | 'velas'>('equity')
-  const [period, setPeriod] = useState<'1D' | '1W' | '1M' | '3M' | '1Y'>('1D')
+  const [period, setPeriod] = useState<'15m' | '1H' | '4H' | '1D' | '1W' | '1M'>('1D')
 
   const asset = assets[activeTicker] || assets['AAPL'] || Object.values(assets)[0]
-  const candles = getCandlesForTicker(asset.ticker)
+  const candles = useMemo(() => getCandlesForTicker(asset.ticker, period), [getCandlesForTicker, asset.ticker, period, asset.price])
+
+  // Reactive multi-timeframe equity curve that transforms visibly based on timeframe
+  const displayPortfolioHistory = useMemo(() => {
+    const currentVal = portfolioHistory[portfolioHistory.length - 1]?.value || 125430.5
+    const currentBP = portfolioHistory[portfolioHistory.length - 1]?.buyingPower || 68420.0
+
+    if (period === '15m') {
+      return Array.from({ length: 15 }, (_, i) => {
+        const minAgo = 14 - i
+        const d = new Date(Date.now() - minAgo * 60000)
+        const wave = Math.sin(i * 0.8) * 90 + Math.cos(i * 0.5) * 60
+        return {
+          time: d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          value: Number((currentVal - (14 - i) * 12 + wave).toFixed(2)),
+          buyingPower: currentBP
+        }
+      })
+    }
+    if (period === '1H') {
+      return Array.from({ length: 12 }, (_, i) => {
+        const minAgo = (11 - i) * 5
+        const d = new Date(Date.now() - minAgo * 60000)
+        const wave = Math.sin(i * 0.7) * 240 + Math.cos(i * 0.4) * 130
+        return {
+          time: d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          value: Number((currentVal - (11 - i) * 50 + wave).toFixed(2)),
+          buyingPower: currentBP
+        }
+      })
+    }
+    if (period === '4H') {
+      return Array.from({ length: 16 }, (_, i) => {
+        const minAgo = (15 - i) * 15
+        const d = new Date(Date.now() - minAgo * 60000)
+        const wave = Math.sin(i * 0.6) * 480 + Math.cos(i * 0.3) * 260
+        return {
+          time: d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          value: Number((currentVal - (15 - i) * 140 + wave).toFixed(2)),
+          buyingPower: currentBP
+        }
+      })
+    }
+    if (period === '1D') {
+      return portfolioHistory
+    }
+    if (period === '1W') {
+      const days = ['Jue', 'Vie', 'Sáb', 'Dom', 'Lun', 'Mar', 'Hoy']
+      return days.map((day, idx) => ({
+        time: day,
+        value: Number((currentVal - (6 - idx) * 380 + Math.sin(idx * 1.5) * 420).toFixed(2)),
+        buyingPower: currentBP
+      }))
+    }
+    if (period === '1M') {
+      const weeks = ['Sem 1', 'Sem 2', 'Sem 3', 'Sem 4']
+      return weeks.map((w, idx) => ({
+        time: w,
+        value: Number((currentVal - (3 - idx) * 1800 + Math.sin(idx * 2) * 650).toFixed(2)),
+        buyingPower: currentBP
+      }))
+    }
+    return portfolioHistory
+  }, [portfolioHistory, period])
 
   const grid = dark ? '#21262D' : '#E2E6EF'
   const tick = dark ? '#8B949E' : '#6B7280'
@@ -196,7 +259,7 @@ function DashboardLiveChart({
           <div className="flex items-center gap-2">
             <span className="text-xs font-mono-data font-bold t-text1">
               {chartMode === 'equity'
-                ? `$${fmt(portfolioHistory[portfolioHistory.length - 1]?.value || 125430.5)}`
+                ? `$${fmt(displayPortfolioHistory[displayPortfolioHistory.length - 1]?.value || 125430.5)}`
                 : `$${fmt(asset.price)} (${fmtSign(asset.changePct)}%)`}
             </span>
             {chartMode === 'velas' && onOperate && (
@@ -210,19 +273,27 @@ function DashboardLiveChart({
           </div>
         </div>
 
-        {/* Timeframes */}
+        {/* Timeframes with Spanish Tooltips */}
         <div className="flex items-center gap-1">
-          {(['1D', '1W', '1M', '3M', '1Y'] as const).map(p => (
+          {[
+            { id: '15m', label: '15m', title: 'Hace 15 min' },
+            { id: '1H', label: '1H', title: 'Hace 1 hora' },
+            { id: '4H', label: '4H', title: 'Hace 4 horas' },
+            { id: '1D', label: '1D', title: 'Hace 1 día' },
+            { id: '1W', label: '1W', title: 'Hace 1 semana' },
+            { id: '1M', label: '1M', title: 'Hace 1 mes' },
+          ].map(p => (
             <button
-              key={p}
-              onClick={() => setPeriod(p)}
+              key={p.id}
+              title={p.title}
+              onClick={() => setPeriod(p.id as any)}
               className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-colors ${
-                period === p
+                period === p.id
                   ? 'bg-[#1F3864] text-white dark:bg-[#58A6FF]/20 dark:text-[#58A6FF]'
                   : 't-text2 hover:t-text1 hover:bg-black/5 dark:hover:bg-white/5'
               }`}
             >
-              {p}
+              {p.label}
             </button>
           ))}
         </div>
@@ -232,7 +303,7 @@ function DashboardLiveChart({
       <div className="flex-1 my-2 min-h-[200px]">
         {chartMode === 'equity' ? (
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={portfolioHistory} margin={{ top: 10, right: 15, bottom: 5, left: 10 }}>
+            <AreaChart data={displayPortfolioHistory} margin={{ top: 10, right: 15, bottom: 5, left: 10 }}>
               <defs>
                 <linearGradient id="equityGrad" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor={strokeColor} stopOpacity={0.4} />
@@ -406,7 +477,7 @@ function AppContent() {
           </div>
           <div>
             <div className="flex items-center gap-1.5">
-              <span className="font-extrabold text-base tracking-tight text-white">Ernesto Investing AI</span>
+              <span className="font-extrabold text-base tracking-tight text-white">Emulador_Bolsa_IHC</span>
               <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-white/20 text-white font-mono uppercase">
                 PRO v4.0
               </span>
@@ -497,7 +568,7 @@ function AppContent() {
               JG
             </div>
             <div className="hidden xl:block text-left text-xs">
-              <span className="font-bold block text-white">Jorge Gálvez G.</span>
+              <span className="font-bold block text-white">Jorge Galvez</span>
               <span className="text-[10px] text-amber-300 font-mono">Trader Diamante</span>
             </div>
           </div>

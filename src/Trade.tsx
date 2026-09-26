@@ -10,7 +10,7 @@ import { useMarket, Candle } from './context/MarketContext'
 
 type Side      = 'compra' | 'venta'
 type OrderType = 'Mercado' | 'Límite' | 'Stop' | 'Stop-Límite'
-type Period    = '1min' | '5min' | '15min' | '1H' | '4H' | '1D' | '1W'
+type Period    = '1min' | '5min' | '15min' | '1H' | '4H' | '1D' | '1W' | '1M'
 type Indicator = 'Ninguno' | 'SMA' | 'EMA' | 'RSI' | 'MACD'
 
 export interface TradeProps {
@@ -230,23 +230,33 @@ function TradingViewChart({
     <div className="flex flex-col h-full rounded-xl overflow-hidden border border-[#2A2E39]" style={{ background: '#131722' }}>
       {/* Top Chart Toolbar */}
       <div className="flex flex-wrap items-center justify-between px-3 py-2 border-b border-[#2A2E39] bg-[#1E222D] gap-2">
-        {/* Period Selector */}
+        {/* Period Selector with Spanish tooltips and multi-timeframe reactivity */}
         <div className="flex items-center gap-1">
-          <span className="text-[11px] font-semibold text-gray-400 mr-1">Periodo:</span>
-          {(['1min', '5min', '15min', '1H', '4H', '1D', '1W'] as Period[]).map(p => (
+          <span className="text-[11px] font-semibold text-gray-400 mr-1 hidden sm:inline">Temporalidad:</span>
+          {[
+            { id: '1min', label: '1m', title: 'Hace 1 min (Velas de 1m)' },
+            { id: '5min', label: '5m', title: 'Hace 5 min (Velas de 5m)' },
+            { id: '15min', label: '15m', title: 'Hace 15 min (Velas de 15m)' },
+            { id: '1H', label: '1H', title: 'Hace 1 hora (Velas de 1h)' },
+            { id: '4H', label: '4H', title: 'Hace 4 horas (Velas de 4h)' },
+            { id: '1D', label: '1D', title: 'Hace 1 día (Velas diarias)' },
+            { id: '1W', label: '1W', title: 'Hace 1 sem (Velas semanales)' },
+            { id: '1M', label: '1M', title: 'Hace 1 mes (Velas mensuales)' },
+          ].map(p => (
             <button
-              key={p}
+              key={p.id}
+              title={p.title}
               onClick={() => {
-                setPeriod(p)
+                setPeriod(p.id as Period)
                 setPanOffset(0)
               }}
-              className={`px-2 py-0.5 text-xs font-semibold rounded transition-colors ${
-                period === p
-                  ? 'bg-[#2962FF] text-white'
+              className={`px-2 py-0.5 text-xs font-bold rounded transition-colors ${
+                period === p.id
+                  ? 'bg-[#2962FF] text-white shadow'
                   : 'text-gray-400 hover:text-white hover:bg-[#2A2E39]'
               }`}
             >
-              {p}
+              {p.label}
             </button>
           ))}
         </div>
@@ -587,7 +597,7 @@ export default function Trade({
   const [errorToast, setErrorToast] = useState<string | null>(null)
 
   const asset = assets[selectedTicker] || assets['AAPL'] || Object.values(assets)[0]
-  const candles = React.useMemo(() => getCandlesForTicker(selectedTicker), [getCandlesForTicker, selectedTicker, asset?.price])
+  const candles = React.useMemo(() => getCandlesForTicker(selectedTicker, period), [getCandlesForTicker, selectedTicker, period, asset?.price])
   const book = React.useMemo(() => getOrderBookForTicker(selectedTicker), [getOrderBookForTicker, selectedTicker, asset?.price])
 
   // Calculation of effective price & total cost
