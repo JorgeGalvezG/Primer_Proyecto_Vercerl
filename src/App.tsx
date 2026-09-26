@@ -7,14 +7,14 @@ import {
 } from 'lucide-react'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer
+  ResponsiveContainer, AreaChart, Area
 } from 'recharts'
 
 import Watchlist from './Watchlist'
 import Trade from './Trade'
 import Leaderboard from './Leaderboard'
 import MobileView from './MobileView'
-import { MarketProvider, useMarket } from './context/MarketContext'
+import { MarketProvider, useMarket, Candle } from './context/MarketContext'
 import LiveSimulationBar from './components/LiveSimulationBar'
 import NotificationsDropdown from './components/NotificationsModal'
 
@@ -29,94 +29,298 @@ const fmt = (n: number, d = 2) =>
 
 const fmtSign = (n: number) => (n >= 0 ? '+' : '') + fmt(n)
 
-// ── Candlestick SVG Chart for Dashboard ───────────────────────────────────────
+// ── Candlestick SVG Live Chart for Dashboard ──────────────────────────────────
 
-function SvgCandlestick({ dark, chartType, livePrice }: { dark: boolean; chartType: 'velas' | 'líneas'; livePrice: number }) {
-  const dates = [
-    '02 Sep', '03 Sep', '04 Sep', '05 Sep', '08 Sep', '09 Sep', '10 Sep',
-    '11 Sep', '12 Sep', '15 Sep', '16 Sep', '17 Sep', '18 Sep', '19 Sep'
-  ]
-  const seed = [
-    175.2, 177.8, 174.1, 179.5, 182.3, 180.6, 183.1,
-    181.4, 185.2, 187.9, 184.3, 188.7, 191.2, livePrice
-  ]
-
-  const data = dates.map((date, i) => {
-    const close = seed[i]
-    const open = i === 0 ? 173.5 : seed[i - 1]
-    const high = Math.max(open, close) + (Math.sin(i) * 0.5 + 1) * 1.5
-    const low = Math.min(open, close) - (Math.cos(i) * 0.5 + 1) * 1.5
-    return { date, open, close, high, low, volume: Math.floor(8e6 + (Math.sin(i * 1.3) + 1) * 6e6) }
-  })
-
+function SvgCandlestickLive({
+  dark,
+  candles,
+  livePrice
+}: {
+  dark: boolean
+  candles: Candle[]
+  livePrice: number
+}) {
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null)
   const W = 620, H = 220
-  const PAD = { top: 12, right: 10, bottom: 26, left: 54 }
-  const lows = data.map(d => d.low)
-  const highs = data.map(d => d.high)
-  const yMin = Math.floor(Math.min(...lows) - 1)
-  const yMax = Math.ceil(Math.max(...highs) + 1)
+  const PAD = { top: 14, right: 65, bottom: 25, left: 15 }
   const iW = W - PAD.left - PAD.right
   const iH = H - PAD.top - PAD.bottom
-  const toY = (v: number) => PAD.top + ((yMax - v) / (yMax - yMin)) * iH
-  const slotW = iW / data.length
+
+  const visibleCandles = candles.slice(-24)
+  const lows = visibleCandles.map(d => d.low)
+  const highs = visibleCandles.map(d => d.high)
+  const yMin = Math.floor(Math.min(...lows, livePrice) - 0.5)
+  const yMax = Math.ceil(Math.max(...highs, livePrice) + 0.5)
+  const toY = (v: number) => PAD.top + ((yMax - v) / Math.max(0.1, yMax - yMin)) * iH
+  const slotW = iW / Math.max(1, visibleCandles.length)
   const barW = Math.max(Math.floor(slotW * 0.65), 3)
-  const ticks = [yMin, yMin + Math.round((yMax - yMin) / 2), yMax]
+
+  const ticks = [yMin, yMin + (yMax - yMin) * 0.5, yMax]
   const gain = dark ? '#238636' : '#1B7E34'
   const loss = dark ? '#DA3633' : '#C62828'
   const grid = dark ? '#21262D' : '#E2E6EF'
   const tick = dark ? '#8B949E' : '#6B7280'
 
-  if (chartType === 'líneas') {
-    return (
-      <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={data} margin={{ top: 8, right: 12, bottom: 4, left: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke={grid} vertical={false} />
-          <XAxis dataKey="date" tick={{ fontSize: 10, fill: tick }} axisLine={false} tickLine={false} />
-          <YAxis tick={{ fontSize: 10, fill: tick }} axisLine={false} tickLine={false} width={50} tickFormatter={v => `$${fmt(v, 0)}`} />
-          <Tooltip
-            contentStyle={{
-              fontSize: 11,
-              borderRadius: 8,
-              border: '1px solid var(--border)',
-              background: 'var(--card)',
-              color: 'var(--text1)'
-            }}
-            formatter={(v: any) => [`$${fmt(v)}`, 'Precio']}
-          />
-          <Line dataKey="close" dot={false} strokeWidth={2.5} stroke="var(--accent)" />
-        </LineChart>
-      </ResponsiveContainer>
-    )
-  }
-
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-full select-none">
-      {ticks.map(t => (
-        <g key={t}>
-          <line x1={PAD.left} x2={W - PAD.right} y1={toY(t)} y2={toY(t)} stroke={grid} strokeWidth={1} strokeDasharray="2 3" />
-          <text x={PAD.left - 6} y={toY(t) + 4} textAnchor="end" fontSize={10} fill={tick} fontFamily="Consolas, monospace">
-            ${fmt(t, 0)}
-          </text>
-        </g>
-      ))}
-      {data.map((d, i) => {
-        const cx = PAD.left + slotW * i + slotW / 2
-        const bull = d.close >= d.open
-        const color = bull ? gain : loss
-        const bTop = Math.min(toY(d.open), toY(d.close))
-        const bBot = Math.max(toY(d.open), toY(d.close))
-        const bH = Math.max(bBot - bTop, 2)
-        return (
-          <g key={i}>
-            <line x1={cx} x2={cx} y1={toY(d.high)} y2={toY(d.low)} stroke={color} strokeWidth={1.5} />
-            <rect x={cx - barW / 2} y={bTop} width={barW} height={bH} fill={color} rx={1} />
-            <text x={cx} y={H - 8} textAnchor="middle" fontSize={9} fill={tick} fontFamily="Consolas, monospace">
-              {d.date}
+    <div className="relative w-full h-full">
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-full select-none">
+        {ticks.map(t => (
+          <g key={t}>
+            <line x1={PAD.left} x2={W - PAD.right} y1={toY(t)} y2={toY(t)} stroke={grid} strokeWidth={1} strokeDasharray="2 3" />
+            <text x={W - PAD.right + 6} y={toY(t) + 4} fontSize={10} fill={tick} fontFamily="Consolas, monospace">
+              ${fmt(t, 0)}
             </text>
           </g>
-        )
-      })}
-    </svg>
+        ))}
+
+        {/* Live Price Line */}
+        <line x1={PAD.left} x2={W - PAD.right} y1={toY(livePrice)} y2={toY(livePrice)} stroke="#2962FF" strokeWidth={1.5} strokeDasharray="3 2" />
+        <g transform={`translate(${W - PAD.right}, ${toY(livePrice) - 8})`}>
+          <rect x={0} y={0} width={58} height={16} rx={3} fill="#2962FF" />
+          <text x={29} y={11.5} fill="#FFFFFF" fontSize={9} fontWeight="bold" textAnchor="middle" fontFamily="Consolas, monospace">
+            ${fmt(livePrice, 1)}
+          </text>
+        </g>
+
+        {visibleCandles.map((d, i) => {
+          const cx = PAD.left + slotW * i + slotW / 2
+          const bull = d.close >= d.open
+          const color = bull ? gain : loss
+          const bTop = Math.min(toY(d.open), toY(d.close))
+          const bBot = Math.max(toY(d.open), toY(d.close))
+          const bH = Math.max(bBot - bTop, 2)
+          return (
+            <g
+              key={i}
+              onMouseEnter={() => setHoveredIdx(i)}
+              onMouseLeave={() => setHoveredIdx(null)}
+              className="cursor-crosshair"
+            >
+              <line x1={cx} x2={cx} y1={toY(d.high)} y2={toY(d.low)} stroke={color} strokeWidth={1.5} />
+              <rect x={cx - barW / 2} y={bTop} width={barW} height={bH} fill={color} rx={1} />
+              {i % 4 === 0 && (
+                <text x={cx} y={H - 8} textAnchor="middle" fontSize={9} fill={tick} fontFamily="Consolas, monospace">
+                  {d.time}
+                </text>
+              )}
+
+              {/* Trade badges if present */}
+              {d.trades && d.trades.map((tr, trIdx) => {
+                const isBuy = tr.side === 'compra'
+                const yPos = isBuy ? toY(d.low) + 8 : toY(d.high) - 8
+                const badgeY = isBuy ? toY(d.low) + 14 : toY(d.high) - 28
+                const badgeColor = isBuy ? '#1B7E34' : '#C62828'
+                return (
+                  <g key={tr.id || trIdx} className="pointer-events-none">
+                    <polygon
+                      points={isBuy
+                        ? `${cx},${yPos} ${cx - 4},${yPos + 6} ${cx + 4},${yPos + 6}`
+                        : `${cx},${yPos} ${cx - 4},${yPos - 6} ${cx + 4},${yPos - 6}`
+                      }
+                      fill={badgeColor}
+                    />
+                    <rect x={cx - 30} y={badgeY} width={60} height={14} rx={3} fill={badgeColor} />
+                    <text x={cx} y={badgeY + 10} fill="#FFF" fontSize={7.5} fontWeight="bold" textAnchor="middle" fontFamily="Consolas, monospace">
+                      {isBuy ? '▲ BUY' : '▼ SELL'} {tr.qty}
+                    </text>
+                  </g>
+                )
+              })}
+            </g>
+          )
+        })}
+      </svg>
+
+      {hoveredIdx !== null && visibleCandles[hoveredIdx] && (
+        <div className="absolute top-2 left-3 bg-[#161B22]/90 border border-gray-700 rounded px-2.5 py-1 text-[11px] text-gray-200 pointer-events-none font-mono flex items-center gap-2 backdrop-blur shadow">
+          <span>{visibleCandles[hoveredIdx].time}</span>
+          <span>O: <strong>${fmt(visibleCandles[hoveredIdx].open)}</strong></span>
+          <span>C: <strong>${fmt(visibleCandles[hoveredIdx].close)}</strong></span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Dashboard Live Chart with Mode Switcher (Portafolio Equity vs Velas Activo) ──
+
+function DashboardLiveChart({
+  dark,
+  activeTicker = 'AAPL',
+  onOperate
+}: {
+  dark: boolean
+  activeTicker?: string
+  onOperate?: (ticker: string) => void
+}) {
+  const { portfolioHistory, getCandlesForTicker, assets } = useMarket()
+  const [chartMode, setChartMode] = useState<'equity' | 'velas'>('equity')
+  const [period, setPeriod] = useState<'1D' | '1W' | '1M' | '3M' | '1Y'>('1D')
+
+  const asset = assets[activeTicker] || assets['AAPL'] || Object.values(assets)[0]
+  const candles = getCandlesForTicker(asset.ticker)
+
+  const grid = dark ? '#21262D' : '#E2E6EF'
+  const tick = dark ? '#8B949E' : '#6B7280'
+  const strokeColor = dark ? '#58A6FF' : '#1F3864'
+
+  return (
+    <div className="flex flex-col h-full justify-between">
+      {/* Chart Top Controls */}
+      <div className="flex flex-wrap items-center justify-between pb-3 border-b t-border gap-2">
+        <div className="flex items-center gap-3">
+          {/* Mode toggle */}
+          <div className="flex items-center p-0.5 rounded-lg bg-black/5 dark:bg-white/5 border t-border text-xs">
+            <button
+              onClick={() => setChartMode('equity')}
+              className={`px-3 py-1 rounded-md font-bold transition-all ${
+                chartMode === 'equity'
+                  ? 'bg-[#1F3864] text-white dark:bg-[#58A6FF] dark:text-black shadow'
+                  : 't-text2 hover:t-text1'
+              }`}
+            >
+              📈 Portafolio Dinámico (Equity)
+            </button>
+            <button
+              onClick={() => setChartMode('velas')}
+              className={`px-3 py-1 rounded-md font-bold transition-all ${
+                chartMode === 'velas'
+                  ? 'bg-[#1F3864] text-white dark:bg-[#58A6FF] dark:text-black shadow'
+                  : 't-text2 hover:t-text1'
+              }`}
+            >
+              🕯️ Velas {asset.ticker}
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-mono-data font-bold t-text1">
+              {chartMode === 'equity'
+                ? `$${fmt(portfolioHistory[portfolioHistory.length - 1]?.value || 125430.5)}`
+                : `$${fmt(asset.price)} (${fmtSign(asset.changePct)}%)`}
+            </span>
+            {chartMode === 'velas' && onOperate && (
+              <button
+                onClick={() => onOperate(asset.ticker)}
+                className="text-[10px] font-bold text-blue-500 hover:underline"
+              >
+                Operar {asset.ticker} →
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Timeframes */}
+        <div className="flex items-center gap-1">
+          {(['1D', '1W', '1M', '3M', '1Y'] as const).map(p => (
+            <button
+              key={p}
+              onClick={() => setPeriod(p)}
+              className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-colors ${
+                period === p
+                  ? 'bg-[#1F3864] text-white dark:bg-[#58A6FF]/20 dark:text-[#58A6FF]'
+                  : 't-text2 hover:t-text1 hover:bg-black/5 dark:hover:bg-white/5'
+              }`}
+            >
+              {p}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Chart Canvas Area */}
+      <div className="flex-1 my-2 min-h-[200px]">
+        {chartMode === 'equity' ? (
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={portfolioHistory} margin={{ top: 10, right: 15, bottom: 5, left: 10 }}>
+              <defs>
+                <linearGradient id="equityGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor={strokeColor} stopOpacity={0.4} />
+                  <stop offset="95%" stopColor={strokeColor} stopOpacity={0.0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke={grid} vertical={false} />
+              <XAxis dataKey="time" tick={{ fontSize: 10, fill: tick }} axisLine={false} tickLine={false} />
+              <YAxis
+                domain={['auto', 'auto']}
+                tick={{ fontSize: 10, fill: tick }}
+                axisLine={false}
+                tickLine={false}
+                width={65}
+                tickFormatter={v => `$${fmt(v, 0)}`}
+              />
+              <Tooltip
+                content={({ active, payload }) => {
+                  if (active && payload && payload.length) {
+                    const data = payload[0].payload
+                    return (
+                      <div className="p-2.5 rounded-lg border t-border bg-white dark:bg-[#161B22] shadow-lg text-xs font-mono">
+                        <div className="text-gray-400 text-[10px]">{data.time}</div>
+                        <div className="font-bold text-sm t-text1">${fmt(data.value)}</div>
+                        <div className="text-blue-500 text-[11px]">Poder de Compra: ${fmt(data.buyingPower)}</div>
+                        {data.event && (
+                          <div className={`mt-1 text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                            data.side === 'compra' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'
+                          }`}>
+                            ⚡ {data.event}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  }
+                  return null
+                }}
+              />
+              <Area
+                type="monotone"
+                dataKey="value"
+                stroke={strokeColor}
+                strokeWidth={2.5}
+                fill="url(#equityGrad)"
+                dot={(props: any) => {
+                  if (props.payload.event) {
+                    const isBuy = props.payload.side === 'compra'
+                    return (
+                      <circle
+                        key={props.cx + '-' + props.cy}
+                        cx={props.cx}
+                        cy={props.cy}
+                        r={5}
+                        fill={isBuy ? '#1B7E34' : '#C62828'}
+                        stroke="#FFFFFF"
+                        strokeWidth={2}
+                      />
+                    )
+                  }
+                  return <React.Fragment key={props.cx + '-' + props.cy} />
+                }}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        ) : (
+          <SvgCandlestickLive
+            dark={dark}
+            candles={candles}
+            livePrice={asset.price}
+          />
+        )}
+      </div>
+
+      {/* Chart Footer with Live Status */}
+      <div className="flex justify-between items-center pt-2 border-t t-border text-[11px] t-text3 font-mono-data">
+        <span className="flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+          {chartMode === 'equity'
+            ? 'Curva de Portafolio en vivo · Actualiza dinámicamente con compras, ventas y cotizaciones'
+            : `Velas japonesas de ${asset.name} con órdenes marcadas`}
+        </span>
+        <span>
+          {chartMode === 'equity'
+            ? `${portfolioHistory.length} puntos registrados`
+            : `Volumen: ${fmt(asset.volume || 58432100, 0)}`}
+        </span>
+      </div>
+    </div>
   )
 }
 
@@ -489,46 +693,13 @@ function AppContent() {
 
               {/* ── GRÁFICO CANDLESTICK + TOP MOVERS ───────────────────────── */}
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
-                {/* Gráfico central de velas (lg:col-span-8) */}
-                <div className="lg:col-span-8 t-card border t-border rounded-xl p-5 t-shadow flex flex-col justify-between h-[360px]">
-                  <div className="flex flex-wrap items-center justify-between pb-3 border-b t-border gap-2">
-                    <div className="flex items-center gap-3">
-                      <span className="text-base font-black t-text1">AAPL · S&P 500 Benchmark</span>
-                      <span className={`text-xs font-bold font-mono-data flex items-center gap-1 ${
-                        aaplAsset.changePct >= 0 ? 'text-emerald-600' : 'text-rose-600'
-                      }`}>
-                        {aaplAsset.changePct >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
-                        ${fmt(aaplAsset.price)} ({fmtSign(aaplAsset.changePct)}%)
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-1">
-                      {(['1D', '1W', '1M', '3M', '1Y'] as const).map(p => (
-                        <button
-                          key={p}
-                          className={`px-2.5 py-1 text-xs font-bold rounded-lg ${
-                            p === '1M'
-                              ? 'bg-[#1F3864] text-white dark:bg-[#58A6FF]/20 dark:text-[#58A6FF]'
-                              : 't-text2 hover:t-text1 hover:bg-black/5 dark:hover:bg-white/5'
-                          }`}
-                        >
-                          {p}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="flex-1 my-2">
-                    <SvgCandlestick dark={dark} chartType="velas" livePrice={aaplAsset.price} />
-                  </div>
-
-                  <div className="flex justify-between items-center pt-2 border-t t-border text-[11px] t-text3 font-mono-data">
-                    <span className="flex items-center gap-1.5">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                      Fuente: NYSE / BVL Emulado en Tiempo Real
-                    </span>
-                    <span>Volumen hoy: {fmt(aaplAsset.volume || 58432100, 0)}</span>
-                  </div>
+                {/* Gráfico central interactivo: Portafolio Equity vs Velas Japonesas (lg:col-span-8) */}
+                <div className="lg:col-span-8 t-card border t-border rounded-xl p-5 t-shadow flex flex-col justify-between min-h-[380px]">
+                  <DashboardLiveChart
+                    dark={dark}
+                    activeTicker="AAPL"
+                    onOperate={ticker => navigateToTrade(ticker)}
+                  />
                 </div>
 
                 {/* Panel lateral Top Movers con Sparklines (lg:col-span-4) */}

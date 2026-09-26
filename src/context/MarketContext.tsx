@@ -73,6 +73,14 @@ export interface NotificationItem {
   ticker?: string
 }
 
+export interface TradeMarker {
+  id: number
+  side: Side
+  qty: number
+  price: number
+  time: string
+}
+
 export interface Candle {
   time: string
   open: number
@@ -80,6 +88,15 @@ export interface Candle {
   low: number
   close: number
   volume: number
+  trades?: TradeMarker[]
+}
+
+export interface PortfolioPoint {
+  time: string
+  value: number
+  buyingPower: number
+  event?: string
+  side?: Side
 }
 
 export interface DepthLevel {
@@ -133,6 +150,8 @@ export interface MarketContextType {
   clearNotifications: () => void
   
   // Live Candlesticks & Depth Book helper
+  candlesMap: Record<string, Candle[]>
+  portfolioHistory: PortfolioPoint[]
   getCandlesForTicker: (ticker: string) => Candle[]
   getOrderBookForTicker: (ticker: string) => { asks: DepthLevel[]; bids: DepthLevel[] }
   
@@ -426,6 +445,77 @@ const INITIAL_ALERTS: AlertItem[] = [
   { id: 5, ticker: 'BTC', condition: 'Mayor que', value: 64000.00, notif: 'Push', status: 'activa', enabled: true, createdAt: 'Hoy 08:30' },
 ]
 
+export function generateInitialCandles(basePrice: number, ticker?: string): Candle[] {
+  const result: Candle[] = []
+  let price = basePrice * 0.985
+  const now = new Date()
+  for (let i = 29; i >= 0; i--) {
+    const candleTime = new Date(now.getTime() - i * 60000)
+    const timeStr = candleTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    const d = (Math.sin(i * 0.6) + Math.cos(i * 0.35)) * (basePrice * 0.006)
+    const open = price
+    const close = i === 0 ? basePrice : price + d
+    const high = Math.max(open, close) + Math.abs(d) * 0.4 + (basePrice * 0.002)
+    const low = Math.min(open, close) - Math.abs(d) * 0.4 - (basePrice * 0.002)
+    const volume = Math.floor(1500000 + Math.abs(Math.sin(i * 1.5)) * 3000000)
+
+    const trades: TradeMarker[] = []
+    if (ticker === 'AAPL' && i === 12) {
+      trades.push({
+        id: 1,
+        side: 'compra',
+        qty: 25,
+        price: 189.80,
+        time: '10:45'
+      })
+    } else if (ticker === 'TSLA' && i === 20) {
+      trades.push({
+        id: 2,
+        side: 'venta',
+        qty: 15,
+        price: 242.50,
+        time: '09:32'
+      })
+    }
+
+    result.push({
+      time: timeStr,
+      open: Number(open.toFixed(2)),
+      high: Number(high.toFixed(2)),
+      low: Number(low.toFixed(2)),
+      close: Number(close.toFixed(2)),
+      volume,
+      trades: trades.length > 0 ? trades : undefined
+    })
+    price = close
+  }
+  return result
+}
+
+export function generateAllInitialCandles(): Record<string, Candle[]> {
+  const map: Record<string, Candle[]> = {}
+  Object.keys(INITIAL_ASSETS_MAP).forEach(sym => {
+    map[sym] = generateInitialCandles(INITIAL_ASSETS_MAP[sym].price, sym)
+  })
+  return map
+}
+
+const INITIAL_PORTFOLIO_HISTORY: PortfolioPoint[] = [
+  { time: '09:30', value: 122980.50, buyingPower: 68420.00 },
+  { time: '09:45', value: 123450.00, buyingPower: 68420.00 },
+  { time: '10:00', value: 123120.20, buyingPower: 68420.00 },
+  { time: '10:15', value: 123890.00, buyingPower: 68420.00 },
+  { time: '10:30', value: 124200.50, buyingPower: 68420.00 },
+  { time: '10:45', value: 123950.00, buyingPower: 63675.00, event: 'COMPRA 25 AAPL', side: 'compra' },
+  { time: '11:00', value: 124400.00, buyingPower: 63675.00 },
+  { time: '11:15', value: 124150.80, buyingPower: 63675.00 },
+  { time: '11:30', value: 124650.00, buyingPower: 63675.00 },
+  { time: '11:45', value: 124900.20, buyingPower: 63675.00 },
+  { time: '12:00', value: 125100.00, buyingPower: 68420.00, event: 'VENTA 15 TSLA', side: 'venta' },
+  { time: '12:15', value: 125300.50, buyingPower: 68420.00 },
+  { time: '12:30', value: 125430.50, buyingPower: 68420.00 },
+]
+
 // Audio synthesizer for real-time sound feedback (Web Audio API)
 function playSound(type: 'trade' | 'alert' | 'event') {
   try {
@@ -517,6 +607,17 @@ export function MarketProvider({ children }: { children: React.ReactNode }) {
   })
   const [isRealFeedActive, setIsRealFeedActive] = useState<boolean>(false)
 
+  const [candlesMap, setCandlesMap] = useState<Record<string, Candle[]>>(() => {
+    return generateAllInitialCandles()
+  })
+
+  const [portfolioHistory, setPortfolioHistory] = useState<PortfolioPoint[]>(() => {
+    const saved = localStorage.getItem('ernesto_portfolio_history')
+    return saved ? JSON.parse(saved) : INITIAL_PORTFOLIO_HISTORY
+  })
+
+  const tickCountRef = useRef<number>(0)
+
   // Local storage auto-sync
   useEffect(() => {
     localStorage.setItem('ernesto_market_assets', JSON.stringify(assets))
@@ -537,6 +638,10 @@ export function MarketProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     localStorage.setItem('ernesto_alerts', JSON.stringify(alerts))
   }, [alerts])
+
+  useEffect(() => {
+    localStorage.setItem('ernesto_portfolio_history', JSON.stringify(portfolioHistory))
+  }, [portfolioHistory])
 
   // ── Sync Real Stock Data from Yahoo Finance ────────────────────────────────
   const syncRealData = async () => {
@@ -569,6 +674,25 @@ export function MarketProvider({ children }: { children: React.ReactNode }) {
             }
           })
           return next
+        })
+
+        // Also update latest candle in candlesMap
+        setCandlesMap(prevMap => {
+          const nextMap = { ...prevMap }
+          Object.keys(json.data).forEach(sym => {
+            const r = json.data[sym]
+            if (r.price > 0 && nextMap[sym] && nextMap[sym].length > 0) {
+              const candles = [...nextMap[sym]]
+              const lastIdx = candles.length - 1
+              const last = { ...candles[lastIdx] }
+              last.close = r.price
+              last.high = Math.max(last.high, r.price)
+              last.low = Math.min(last.low, r.price)
+              candles[lastIdx] = last
+              nextMap[sym] = candles
+            }
+          })
+          return nextMap
         })
       }
     } catch {}
@@ -630,6 +754,20 @@ export function MarketProvider({ children }: { children: React.ReactNode }) {
                     tickDirection: tickDir
                   }
                 }
+              })
+
+              setCandlesMap(prevMap => {
+                if (!prevMap[sym] || prevMap[sym].length === 0) return prevMap
+                const nextMap = { ...prevMap }
+                const candles = [...nextMap[sym]]
+                const lastIdx = candles.length - 1
+                const last = { ...candles[lastIdx] }
+                last.close = newPrice
+                last.high = Math.max(last.high, newPrice)
+                last.low = Math.min(last.low, newPrice)
+                candles[lastIdx] = last
+                nextMap[sym] = candles
+                return nextMap
               })
             }
           } catch {}
@@ -759,12 +897,83 @@ export function MarketProvider({ children }: { children: React.ReactNode }) {
           })
         })
 
+        // Update live candlesMap for the ticked tickers
+        setCandlesMap(prevMap => {
+          const nextMap = { ...prevMap }
+          chosen.forEach(t => {
+            if (!nextMap[t] || nextMap[t].length === 0) {
+              nextMap[t] = generateInitialCandles(next[t]?.price || 100, t)
+            }
+            const candles = [...nextMap[t]]
+            const lastIdx = candles.length - 1
+            const last = { ...candles[lastIdx] }
+            const newPrice = next[t].price
+            last.close = newPrice
+            last.high = Math.max(last.high, newPrice)
+            last.low = Math.min(last.low, newPrice)
+            last.volume += Math.floor(Math.random() * 300 + 50)
+            candles[lastIdx] = last
+            nextMap[t] = candles
+          })
+          return nextMap
+        })
+
+        // Advance candles every 18 ticks (sliding window)
+        tickCountRef.current += 1
+        if (tickCountRef.current % 18 === 0) {
+          const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          setCandlesMap(prevMap => {
+            const nextMap = { ...prevMap }
+            Object.keys(nextMap).forEach(sym => {
+              const candles = nextMap[sym]
+              if (candles && candles.length > 0) {
+                const last = candles[candles.length - 1]
+                const newCandle: Candle = {
+                  time: nowTime,
+                  open: last.close,
+                  high: last.close,
+                  low: last.close,
+                  close: last.close,
+                  volume: Math.floor(Math.random() * 40000 + 10000)
+                }
+                nextMap[sym] = [...candles.slice(-34), newCandle]
+              }
+            })
+            return nextMap
+          })
+        }
+
+        // Periodically update portfolio history curve (every 4 ticks)
+        if (tickCountRef.current % 4 === 0) {
+          const nowStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          setPortfolioHistory(prev => {
+            const last = prev[prev.length - 1]
+            if (last && !last.event) {
+              const copy = [...prev]
+              copy[copy.length - 1] = {
+                ...last,
+                value: Number(portfolioValue.toFixed(2)),
+                buyingPower: Number(buyingPower.toFixed(2))
+              }
+              return copy
+            }
+            return [
+              ...prev.slice(-39),
+              {
+                time: nowStr,
+                value: Number(portfolioValue.toFixed(2)),
+                buyingPower: Number(buyingPower.toFixed(2))
+              }
+            ]
+          })
+        }
+
         return next
       })
     }, intervalMs)
 
     return () => clearInterval(timer)
-  }, [isLive, simSpeed, alerts])
+  }, [isLive, simSpeed, alerts, portfolioValue, buyingPower])
 
   // Reset tick direction highlight after 800ms
   useEffect(() => {
@@ -884,6 +1093,50 @@ export function MarketProvider({ children }: { children: React.ReactNode }) {
     setOrderHistory(prev => [newRecord, ...prev])
     playSound('trade')
 
+    // Attach Trade Marker to the latest candle in candlesMap
+    const marker: TradeMarker = {
+      id: Date.now(),
+      side,
+      qty,
+      price: execPrice,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    }
+
+    setCandlesMap(prevMap => {
+      const list = prevMap[ticker] || generateInitialCandles(execPrice, ticker)
+      const copy = [...list]
+      const lastIdx = copy.length - 1
+      const last = { ...copy[lastIdx] }
+      last.trades = [...(last.trades || []), marker]
+      copy[lastIdx] = last
+      return {
+        ...prevMap,
+        [ticker]: copy
+      }
+    })
+
+    // Immediately record in portfolioHistory curve
+    const finalBuyingPower = side === 'compra'
+      ? Number((buyingPower - totalCost).toFixed(2))
+      : Number((buyingPower + totalCost).toFixed(2))
+
+    const finalHoldingsVal = side === 'compra'
+      ? holdingsValue + totalCost
+      : holdingsValue - totalCost
+
+    const finalPortVal = Number((finalBuyingPower + finalHoldingsVal).toFixed(2))
+
+    setPortfolioHistory(prev => [
+      ...prev.slice(-39),
+      {
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+        value: finalPortVal,
+        buyingPower: finalBuyingPower,
+        event: `${side.toUpperCase()} ${qty} ${ticker} @ $${execPrice.toFixed(2)}`,
+        side
+      }
+    ])
+
     // Add Notification
     setNotifications(prev => [
       {
@@ -999,12 +1252,15 @@ export function MarketProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem('ernesto_holdings')
     localStorage.removeItem('ernesto_orders')
     localStorage.removeItem('ernesto_alerts')
+    localStorage.removeItem('ernesto_portfolio_history')
 
     setAssets(INITIAL_ASSETS_MAP)
     setBuyingPower(BASE_BUYING_POWER)
     setHoldings(INITIAL_POSITIONS_CONFIG)
     setOrderHistory(INITIAL_ORDERS)
     setAlerts(INITIAL_ALERTS)
+    setCandlesMap(generateAllInitialCandles())
+    setPortfolioHistory(INITIAL_PORTFOLIO_HISTORY)
     setCurrentNewsEvent(null)
     setNotifications([
       {
@@ -1020,28 +1276,11 @@ export function MarketProvider({ children }: { children: React.ReactNode }) {
   // ── Candlesticks & Depth Generators ─────────────────────────────────────────
 
   const getCandlesForTicker = (ticker: string): Candle[] => {
-    const asset = assets[ticker] || assets['AAPL']
-    const base = asset.price * 0.97
-    const result: Candle[] = []
-    let price = base
-    for (let i = 0; i < 30; i++) {
-      const d = (Math.sin(i * 0.7) + Math.cos(i * 0.3)) * (asset.price * 0.008)
-      const open = price
-      const close = i === 29 ? asset.price : price + d
-      const high = Math.max(open, close) + Math.abs(d) * 0.4 + 0.2
-      const low = Math.min(open, close) - Math.abs(d) * 0.4 - 0.2
-      const volume = Math.floor(1500000 + Math.abs(Math.sin(i * 1.5)) * 3000000)
-      result.push({
-        time: `${9 + Math.floor(i / 5)}:${(i % 5) * 12 || '00'}`,
-        open: Number(open.toFixed(2)),
-        high: Number(high.toFixed(2)),
-        low: Number(low.toFixed(2)),
-        close: Number(close.toFixed(2)),
-        volume
-      })
-      price = close
+    if (candlesMap[ticker] && candlesMap[ticker].length > 0) {
+      return candlesMap[ticker]
     }
-    return result
+    const asset = assets[ticker] || assets['AAPL']
+    return generateInitialCandles(asset ? asset.price : 100, ticker)
   }
 
   const getOrderBookForTicker = (ticker: string) => {
@@ -1098,6 +1337,8 @@ export function MarketProvider({ children }: { children: React.ReactNode }) {
         unreadCount,
         markNotificationsAsRead,
         clearNotifications,
+        candlesMap,
+        portfolioHistory,
         getCandlesForTicker,
         getOrderBookForTicker,
         currentNewsEvent,

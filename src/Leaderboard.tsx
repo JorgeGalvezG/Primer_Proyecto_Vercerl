@@ -241,6 +241,13 @@ export default function Leaderboard({ dark = false, onTrade, onBackToDashboard }
     })
   }, [portfolioValue, dayPnlUsd, dayPnlPct, orderHistory, positions])
 
+  const livePerformanceData = useMemo(() => {
+    return [
+      ...PERFORMANCE_CHART_DATA.slice(0, -1),
+      { day: 'Hoy (En Vivo)', port: Number(portfolioValue.toFixed(0)), sp500: 105200 }
+    ]
+  }, [portfolioValue])
+
   const filteredCompetitors = liveCompetitors.filter(c =>
     c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     c.handle.toLowerCase().includes(searchQuery.toLowerCase())
@@ -702,7 +709,7 @@ export default function Leaderboard({ dark = false, onTrade, onBackToDashboard }
 
             <div className="h-44 w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={PERFORMANCE_CHART_DATA} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+                <LineChart data={livePerformanceData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke={dark ? '#30363D' : '#E2E6EF'} vertical={false} />
                   <XAxis dataKey="day" stroke={dark ? '#8B949E' : '#9CA3AF'} tick={{ fontSize: 9 }} />
                   <YAxis stroke={dark ? '#8B949E' : '#9CA3AF'} tick={{ fontSize: 9 }} domain={['dataMin - 2000', 'dataMax + 2000']} />

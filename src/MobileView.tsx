@@ -39,7 +39,9 @@ export default function MobileView({ onBack }: { onBack?: () => void }) {
     deleteAlert,
     unreadCount,
     markNotificationsAsRead,
-    resetToDefaults
+    resetToDefaults,
+    portfolioHistory,
+    getCandlesForTicker
   } = useMarket()
 
   const [activeTab, setActiveTab] = useState<MobileTab>('dashboard')
@@ -319,17 +321,54 @@ export default function MobileView({ onBack }: { onBack?: () => void }) {
                     <span>Poder: <strong className="text-amber-300 font-mono">${fmt(buyingPower)}</strong></span>
                   </div>
 
-                  {/* Sparkline Area chart */}
-                  <div className="h-[60px] my-1">
+                  {/* Sparkline Area chart with live Portfolio Equity */}
+                  <div className="h-[75px] my-1">
                     <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={chartData} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
+                      <AreaChart data={portfolioHistory} margin={{ top: 4, right: 2, left: 2, bottom: 0 }}>
                         <defs>
                           <linearGradient id="mobGrad" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#C5961A" stopOpacity={0.6} />
+                            <stop offset="5%" stopColor="#C5961A" stopOpacity={0.7} />
                             <stop offset="95%" stopColor="#C5961A" stopOpacity={0.0} />
                           </linearGradient>
                         </defs>
-                        <Area type="monotone" dataKey="p" stroke="#C5961A" strokeWidth={2} fill="url(#mobGrad)" dot={false} />
+                        <Tooltip
+                          content={({ active, payload }) => {
+                            if (active && payload && payload.length) {
+                              const d = payload[0].payload
+                              return (
+                                <div className="px-2 py-1 rounded bg-[#0D1117]/95 border border-white/20 text-[10px] font-mono shadow">
+                                  <div className="text-gray-400">{d.time}</div>
+                                  <div className="font-bold text-amber-300">${fmt(d.value)}</div>
+                                  {d.event && <div className="text-emerald-400 text-[9px] font-bold">{d.event}</div>}
+                                </div>
+                              )
+                            }
+                            return null
+                          }}
+                        />
+                        <Area
+                          type="monotone"
+                          dataKey="value"
+                          stroke="#C5961A"
+                          strokeWidth={2.2}
+                          fill="url(#mobGrad)"
+                          dot={(props: any) => {
+                            if (props.payload.event) {
+                              return (
+                                <circle
+                                  key={props.cx + '-' + props.cy}
+                                  cx={props.cx}
+                                  cy={props.cy}
+                                  r={3.5}
+                                  fill="#1B7E34"
+                                  stroke="#FFF"
+                                  strokeWidth={1.5}
+                                />
+                              )
+                            }
+                            return <React.Fragment key={props.cx + '-' + props.cy} />
+                          }}
+                        />
                       </AreaChart>
                     </ResponsiveContainer>
                   </div>
@@ -627,6 +666,66 @@ export default function MobileView({ onBack }: { onBack?: () => void }) {
                       <span className="text-gray-400 block text-[9px] uppercase">Poder Disponible</span>
                       <span className="font-mono font-bold text-blue-500">${fmt(buyingPower)}</span>
                     </div>
+                  </div>
+                </div>
+
+                {/* Live Interactive Mobile Candlestick Chart for Active Asset */}
+                <div className={`p-3 rounded-2xl border flex flex-col gap-2 ${
+                  isDark ? 'bg-[#161B22] border-[#30363D]' : 'bg-white border-gray-200 shadow-sm'
+                }`}>
+                  <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                      Gráfico Dinámico ({activeAsset.ticker})
+                    </span>
+                    <span className="font-mono text-emerald-500 font-bold">${fmt(activeAsset.price)}</span>
+                  </div>
+                  
+                  {/* SVG mini-candlestick */}
+                  <div className="h-[105px] w-full rounded-xl overflow-hidden border border-black/10 dark:border-white/10 bg-[#131722] p-1 relative">
+                    <svg viewBox="0 0 350 95" className="w-full h-full select-none">
+                      {(() => {
+                        const cList = getCandlesForTicker(activeAsset.ticker).slice(-16)
+                        const lows = cList.map(d => d.low)
+                        const highs = cList.map(d => d.high)
+                        const min = Math.min(...lows, activeAsset.price) - 0.2
+                        const max = Math.max(...highs, activeAsset.price) + 0.2
+                        const toY = (v: number) => 8 + ((max - v) / Math.max(0.1, max - min)) * 75
+                        const slot = 350 / Math.max(1, cList.length)
+                        const bw = Math.max(Math.floor(slot * 0.6), 4)
+
+                        return (
+                          <>
+                            {/* Live price line */}
+                            <line x1={0} x2={350} y1={toY(activeAsset.price)} y2={toY(activeAsset.price)} stroke="#2962FF" strokeWidth={1} strokeDasharray="3 2" />
+                            {cList.map((d, i) => {
+                              const cx = slot * i + slot / 2
+                              const bull = d.close >= d.open
+                              const col = bull ? '#089981' : '#F23645'
+                              const bTop = Math.min(toY(d.open), toY(d.close))
+                              const bBot = Math.max(toY(d.open), toY(d.close))
+                              const bH = Math.max(bBot - bTop, 2)
+                              return (
+                                <g key={i}>
+                                  <line x1={cx} x2={cx} y1={toY(d.high)} y2={toY(d.low)} stroke={col} strokeWidth={1.2} />
+                                  <rect x={cx - bw / 2} y={bTop} width={bw} height={bH} fill={col} rx={0.5} />
+                                  {d.trades && d.trades.map((tr, trI) => (
+                                    <polygon
+                                      key={trI}
+                                      points={tr.side === 'compra'
+                                        ? `${cx},${toY(d.low) + 2} ${cx - 3.5},${toY(d.low) + 6} ${cx + 3.5},${toY(d.low) + 6}`
+                                        : `${cx},${toY(d.high) - 2} ${cx - 3.5},${toY(d.high) - 6} ${cx + 3.5},${toY(d.high) - 6}`
+                                      }
+                                      fill={tr.side === 'compra' ? '#1B7E34' : '#C62828'}
+                                    />
+                                  ))}
+                                </g>
+                              )
+                            })}
+                          </>
+                        )
+                      })()}
+                    </svg>
                   </div>
                 </div>
 

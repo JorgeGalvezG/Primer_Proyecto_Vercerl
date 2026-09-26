@@ -1,9 +1,10 @@
-import React, { useState, useId } from 'react'
+import React, { useState, useId, useRef } from 'react'
 import {
   TrendingUp, TrendingDown, ChevronDown, AlertCircle, CheckCircle2,
-  Clock, XCircle, ArrowLeft, Shield, Sliders, BarChart2
+  Clock, XCircle, ArrowLeft, Shield, Sliders, BarChart2,
+  MoveLeft, MoveRight, RotateCcw, ZoomIn, ZoomOut, Move
 } from 'lucide-react'
-import { useMarket } from './context/MarketContext'
+import { useMarket, Candle } from './context/MarketContext'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -133,26 +134,50 @@ const fmtVol = (n: number) => {
 // ── Candlestick Chart Component with TradingView #131722 dark background ──────
 
 function TradingViewChart({
-  candles, indicator, period, setPeriod, setIndicator
+  candles,
+  indicator,
+  period,
+  setPeriod,
+  setIndicator,
+  currentPrice,
+  ticker
 }: {
-  candles: ReturnType<typeof genCandles>
+  candles: Candle[]
   indicator: Indicator
   period: Period
   setPeriod: (p: Period) => void
   setIndicator: (ind: Indicator) => void
+  currentPrice: number
+  ticker: string
 }) {
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null)
+  const [panOffset, setPanOffset] = useState<number>(0)
+  const [zoomLevel, setZoomLevel] = useState<number>(1)
+  const [isDragging, setIsDragging] = useState<boolean>(false)
+  const [dragStartX, setDragStartX] = useState<number>(0)
+  const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null)
+  const svgRef = useRef<SVGSVGElement | null>(null)
+
   const W = 680, H = 340
-  const PAD = { top: 20, right: 60, bottom: 25, left: 15 }
+  const PAD = { top: 22, right: 70, bottom: 25, left: 15 }
   const innerW = W - PAD.left - PAD.right
   const innerH = H - PAD.top - PAD.bottom
 
-  const lows = candles.map(d => d.low)
-  const highs = candles.map(d => d.high)
-  const yMin = Math.floor(Math.min(...lows) - 0.5)
-  const yMax = Math.ceil(Math.max(...highs) + 0.5)
-  const toY = (v: number) => PAD.top + ((yMax - v) / (yMax - yMin)) * innerH
-  const slotW = innerW / candles.length
+  // Apply zoom and pan windowing
+  const baseCount = 26
+  const visibleCount = Math.max(10, Math.min(candles.length, Math.round(baseCount / zoomLevel)))
+  const maxOffset = Math.max(0, candles.length - visibleCount)
+  const clampedOffset = Math.max(0, Math.min(maxOffset, Math.round(panOffset)))
+  const startIdx = Math.max(0, candles.length - visibleCount - clampedOffset)
+  const endIdx = startIdx + visibleCount
+  const visibleCandles = candles.slice(startIdx, endIdx)
+
+  const lows = visibleCandles.map(d => d.low)
+  const highs = visibleCandles.map(d => d.high)
+  const yMin = Math.floor(Math.min(...lows, currentPrice) - 0.4)
+  const yMax = Math.ceil(Math.max(...highs, currentPrice) + 0.4)
+  const toY = (v: number) => PAD.top + ((yMax - v) / Math.max(0.1, yMax - yMin)) * innerH
+  const slotW = innerW / Math.max(1, visibleCandles.length)
   const barW = Math.max(Math.floor(slotW * 0.65), 3)
 
   const ticks = [
@@ -163,11 +188,11 @@ function TradingViewChart({
     yMax
   ]
 
-  // Calculate SMA line
-  const smaPoints = candles.map((c, i) => {
-    if (i < 5) return null
-    const slice = candles.slice(i - 4, i + 1)
-    const avg = slice.reduce((acc, curr) => acc + curr.close, 0) / 5
+  // Calculate SMA line for visible candles
+  const smaPoints = visibleCandles.map((c, i) => {
+    if (i < 3) return null
+    const slice = visibleCandles.slice(Math.max(0, i - 4), i + 1)
+    const avg = slice.reduce((acc, curr) => acc + curr.close, 0) / slice.length
     return { x: PAD.left + slotW * i + slotW / 2, y: toY(avg) }
   }).filter(Boolean) as { x: number; y: number }[]
 
@@ -175,17 +200,46 @@ function TradingViewChart({
     ? smaPoints.reduce((acc, p, i) => `${acc} ${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`, '')
     : ''
 
+  const handleMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
+    setIsDragging(true)
+    setDragStartX(e.clientX)
+  }
+
+  const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (!svgRef.current) return
+    const rect = svgRef.current.getBoundingClientRect()
+    const svgX = ((e.clientX - rect.left) / rect.width) * W
+    const svgY = ((e.clientY - rect.top) / rect.height) * H
+    setMousePos({ x: svgX, y: svgY })
+
+    if (isDragging) {
+      const delta = (e.clientX - dragStartX)
+      if (Math.abs(delta) > 12) {
+        const step = Math.sign(delta)
+        setPanOffset(p => Math.max(0, Math.min(maxOffset, p + step)))
+        setDragStartX(e.clientX)
+      }
+    }
+  }
+
+  const handleMouseUp = () => {
+    setIsDragging(false)
+  }
+
   return (
     <div className="flex flex-col h-full rounded-xl overflow-hidden border border-[#2A2E39]" style={{ background: '#131722' }}>
       {/* Top Chart Toolbar */}
-      <div className="flex flex-wrap items-center justify-between px-4 py-2 border-b border-[#2A2E39] bg-[#1E222D]">
+      <div className="flex flex-wrap items-center justify-between px-3 py-2 border-b border-[#2A2E39] bg-[#1E222D] gap-2">
         {/* Period Selector */}
         <div className="flex items-center gap-1">
           <span className="text-[11px] font-semibold text-gray-400 mr-1">Periodo:</span>
           {(['1min', '5min', '15min', '1H', '4H', '1D', '1W'] as Period[]).map(p => (
             <button
               key={p}
-              onClick={() => setPeriod(p)}
+              onClick={() => {
+                setPeriod(p)
+                setPanOffset(0)
+              }}
               className={`px-2 py-0.5 text-xs font-semibold rounded transition-colors ${
                 period === p
                   ? 'bg-[#2962FF] text-white'
@@ -197,26 +251,84 @@ function TradingViewChart({
           ))}
         </div>
 
-        {/* Technical Indicators Selector */}
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] font-semibold text-gray-400">Indicadores:</span>
-          <select
-            value={indicator}
-            onChange={e => setIndicator(e.target.value as Indicator)}
-            className="bg-[#131722] text-xs text-gray-200 border border-[#2A2E39] rounded px-2 py-1 outline-none focus:border-[#2962FF]"
-          >
-            <option value="Ninguno">Ninguno</option>
-            <option value="SMA">SMA (Media Móvil 5p)</option>
-            <option value="EMA">EMA (Exponencial)</option>
-            <option value="RSI">RSI (Fuerza Relativa)</option>
-            <option value="MACD">MACD</option>
-          </select>
+        {/* Indicators + Navigation / Movible controls */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Pan & Zoom interactive controls */}
+          <div className="flex items-center gap-1 bg-[#131722] px-1.5 py-0.5 rounded-lg border border-[#2A2E39]">
+            <span className="text-[10px] text-gray-400 font-semibold hidden md:inline flex items-center gap-1">
+              <Move size={11} className="text-blue-400" /> Movible:
+            </span>
+            <button
+              onClick={() => setPanOffset(p => Math.min(maxOffset, p + 3))}
+              title="Desplazar al pasado (historial)"
+              className="p-1 text-xs rounded hover:bg-[#2A2E39] text-gray-300 hover:text-white transition-colors"
+            >
+              <MoveLeft size={13} />
+            </button>
+            <button
+              onClick={() => setPanOffset(p => Math.max(0, p - 3))}
+              title="Desplazar al presente (tiempo real)"
+              className="p-1 text-xs rounded hover:bg-[#2A2E39] text-gray-300 hover:text-white transition-colors"
+            >
+              <MoveRight size={13} />
+            </button>
+            <button
+              onClick={() => { setPanOffset(0); setZoomLevel(1) }}
+              title="Restablecer posición actual"
+              className="px-1.5 py-0.5 text-[10px] font-bold rounded hover:bg-[#2A2E39] text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-0.5"
+            >
+              <RotateCcw size={11} /> 0
+            </button>
+            <div className="w-[1px] h-3.5 bg-[#2A2E39] mx-0.5" />
+            <button
+              onClick={() => setZoomLevel(z => Math.min(1.8, Number((z + 0.2).toFixed(2))))}
+              title="Zoom In (+)"
+              className="p-1 text-xs rounded hover:bg-[#2A2E39] text-gray-300 hover:text-white transition-colors"
+            >
+              <ZoomIn size={13} />
+            </button>
+            <button
+              onClick={() => setZoomLevel(z => Math.max(0.65, Number((z - 0.2).toFixed(2))))}
+              title="Zoom Out (-)"
+              className="p-1 text-xs rounded hover:bg-[#2A2E39] text-gray-300 hover:text-white transition-colors"
+            >
+              <ZoomOut size={13} />
+            </button>
+          </div>
+
+          {/* Technical Indicators Selector */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] font-semibold text-gray-400 hidden sm:inline">Indicadores:</span>
+            <select
+              value={indicator}
+              onChange={e => setIndicator(e.target.value as Indicator)}
+              className="bg-[#131722] text-xs text-gray-200 border border-[#2A2E39] rounded px-2 py-1 outline-none focus:border-[#2962FF]"
+            >
+              <option value="Ninguno">Ninguno</option>
+              <option value="SMA">SMA (Media Móvil 5p)</option>
+              <option value="EMA">EMA (Exponencial)</option>
+              <option value="RSI">RSI (Fuerza Relativa)</option>
+              <option value="MACD">MACD</option>
+            </select>
+          </div>
         </div>
       </div>
 
       {/* SVG Canvas Area */}
       <div className="relative flex-1 p-2">
-        <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-full select-none">
+        <svg
+          ref={svgRef}
+          viewBox={`0 0 ${W} ${H}`}
+          className={`w-full h-full select-none ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={() => {
+            handleMouseUp()
+            setMousePos(null)
+            setHoveredIdx(null)
+          }}
+        >
           {/* Horizontal Grid lines and Y-axis Price Labels */}
           {ticks.map((t, idx) => (
             <g key={idx}>
@@ -241,8 +353,26 @@ function TradingViewChart({
             </g>
           ))}
 
+          {/* Live Market Price Dashed Line and Glowing Pill Badge */}
+          <line
+            x1={PAD.left}
+            x2={W - PAD.right}
+            y1={toY(currentPrice)}
+            y2={toY(currentPrice)}
+            stroke="#2962FF"
+            strokeWidth={1.5}
+            strokeDasharray="4 2"
+          />
+          <g transform={`translate(${W - PAD.right}, ${toY(currentPrice) - 9})`}>
+            <rect x={0} y={0} width={66} height={18} rx={3} fill="#2962FF" />
+            <circle cx={7} cy={9} r={3} fill="#00FF88" className="animate-pulse" />
+            <text x={37} y={13} fill="#FFFFFF" fontSize={9.5} fontWeight="bold" textAnchor="middle" fontFamily="Consolas, monospace">
+              ${fmt(currentPrice, 2)}
+            </text>
+          </g>
+
           {/* Candlestick Bars */}
-          {candles.map((d, i) => {
+          {visibleCandles.map((d, i) => {
             const cx = PAD.left + slotW * i + slotW / 2
             const bull = d.close >= d.open
             const candleColor = bull ? '#089981' : '#F23645'
@@ -254,7 +384,6 @@ function TradingViewChart({
               <g
                 key={i}
                 onMouseEnter={() => setHoveredIdx(i)}
-                onMouseLeave={() => setHoveredIdx(null)}
                 className="cursor-crosshair"
               >
                 {/* Wick */}
@@ -275,8 +404,8 @@ function TradingViewChart({
                   fill={candleColor}
                   rx={0.5}
                 />
-                {/* Timestamp at bottom every 6 candles */}
-                {i % 6 === 0 && (
+                {/* Timestamp at bottom every 4 candles */}
+                {i % 4 === 0 && (
                   <text
                     x={cx}
                     y={H - 6}
@@ -288,6 +417,58 @@ function TradingViewChart({
                     {d.time}
                   </text>
                 )}
+
+                {/* Render Executed Trade Badges (BUY / SELL) on this candle */}
+                {d.trades && d.trades.map((tr, trIdx) => {
+                  const isBuy = tr.side === 'compra'
+                  const yPos = isBuy ? toY(d.low) + 10 : toY(d.high) - 10
+                  const badgeY = isBuy ? toY(d.low) + 18 : toY(d.high) - 34
+                  const color = isBuy ? '#089981' : '#F23645'
+                  return (
+                    <g key={tr.id || trIdx} className="pointer-events-none">
+                      {/* Dashed execution price line */}
+                      <line
+                        x1={PAD.left}
+                        x2={W - PAD.right}
+                        y1={toY(tr.price)}
+                        y2={toY(tr.price)}
+                        stroke={color}
+                        strokeWidth={1}
+                        strokeDasharray="3 3"
+                        strokeOpacity={0.6}
+                      />
+                      {/* Triangle pointer */}
+                      <polygon
+                        points={isBuy
+                          ? `${cx},${yPos} ${cx - 5},${yPos + 8} ${cx + 5},${yPos + 8}`
+                          : `${cx},${yPos} ${cx - 5},${yPos - 8} ${cx + 5},${yPos - 8}`
+                        }
+                        fill={color}
+                      />
+                      {/* Pill Badge */}
+                      <rect
+                        x={cx - 36}
+                        y={badgeY}
+                        width={72}
+                        height={16}
+                        rx={3}
+                        fill={color}
+                        fillOpacity={0.95}
+                      />
+                      <text
+                        x={cx}
+                        y={badgeY + 11}
+                        fill="#FFFFFF"
+                        fontSize={8}
+                        fontWeight="bold"
+                        textAnchor="middle"
+                        fontFamily="Consolas, monospace"
+                      >
+                        {isBuy ? '▲ BUY' : '▼ SELL'} {tr.qty} @ ${fmt(tr.price, 1)}
+                      </text>
+                    </g>
+                  )
+                })}
               </g>
             )
           })}
@@ -302,18 +483,50 @@ function TradingViewChart({
               strokeLinecap="round"
             />
           )}
+
+          {/* Crosshair Lines following cursor */}
+          {mousePos && mousePos.x >= PAD.left && mousePos.x <= W - PAD.right && mousePos.y >= PAD.top && mousePos.y <= H - PAD.bottom && (
+            <g className="pointer-events-none">
+              <line
+                x1={mousePos.x}
+                x2={mousePos.x}
+                y1={PAD.top}
+                y2={H - PAD.bottom}
+                stroke="#58A6FF"
+                strokeWidth={0.8}
+                strokeDasharray="2 2"
+                strokeOpacity={0.7}
+              />
+              <line
+                x1={PAD.left}
+                x2={W - PAD.right}
+                y1={mousePos.y}
+                y2={mousePos.y}
+                stroke="#58A6FF"
+                strokeWidth={0.8}
+                strokeDasharray="2 2"
+                strokeOpacity={0.7}
+              />
+            </g>
+          )}
         </svg>
 
         {/* Hover Tooltip Overlay */}
-        {hoveredIdx !== null && (
+        {hoveredIdx !== null && visibleCandles[hoveredIdx] && (
           <div
-            className="absolute top-3 left-4 bg-[#1E222D]/90 border border-[#2A2E39] rounded px-3 py-1.5 text-[11px] text-gray-200 pointer-events-none font-mono flex items-center gap-3 backdrop-blur shadow-md"
+            className="absolute top-3 left-4 bg-[#1E222D]/95 border border-[#2A2E39] rounded px-3 py-1.5 text-[11px] text-gray-200 pointer-events-none font-mono flex items-center gap-3 backdrop-blur shadow-md"
           >
-            <span className="text-gray-400">O: <strong className="text-white">${fmt(candles[hoveredIdx].open)}</strong></span>
-            <span className="text-gray-400">H: <strong className="text-emerald-400">${fmt(candles[hoveredIdx].high)}</strong></span>
-            <span className="text-gray-400">L: <strong className="text-rose-400">${fmt(candles[hoveredIdx].low)}</strong></span>
-            <span className="text-gray-400">C: <strong className="text-white">${fmt(candles[hoveredIdx].close)}</strong></span>
-            <span className="text-gray-400">Vol: <strong className="text-blue-400">{fmtVol(candles[hoveredIdx].volume)}</strong></span>
+            <span className="text-blue-400 font-bold">{visibleCandles[hoveredIdx].time}</span>
+            <span className="text-gray-400">O: <strong className="text-white">${fmt(visibleCandles[hoveredIdx].open)}</strong></span>
+            <span className="text-gray-400">H: <strong className="text-emerald-400">${fmt(visibleCandles[hoveredIdx].high)}</strong></span>
+            <span className="text-gray-400">L: <strong className="text-rose-400">${fmt(visibleCandles[hoveredIdx].low)}</strong></span>
+            <span className="text-gray-400">C: <strong className="text-white">${fmt(visibleCandles[hoveredIdx].close)}</strong></span>
+            <span className="text-gray-400">Vol: <strong className="text-blue-400">{fmtVol(visibleCandles[hoveredIdx].volume)}</strong></span>
+            {visibleCandles[hoveredIdx].trades && (
+              <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold">
+                {visibleCandles[hoveredIdx].trades?.length} {visibleCandles[hoveredIdx].trades?.length === 1 ? 'orden' : 'órdenes'}
+              </span>
+            )}
           </div>
         )}
       </div>
@@ -620,6 +833,8 @@ export default function Trade({
               period={period}
               setPeriod={setPeriod}
               setIndicator={setIndicator}
+              currentPrice={asset.price}
+              ticker={selectedTicker}
             />
           </div>
 
